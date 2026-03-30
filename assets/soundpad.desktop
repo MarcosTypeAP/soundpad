@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Soundpad
+Comment=Soundboard with virtual microphone mixing
+Exec=soundpad
+Icon=soundpad
+Terminal=false
+Type=Application
+Categories=Audio;
+Keywords=media;player;audio;soundpad;
