@@ -44,7 +44,8 @@ FLAGS_WINDOWS_RELEASE = \
 	GOOS=windows \
 	GOARCH=amd64
 
-GO_FLAGS_RELEASE = -trimpath -ldflags="-s -w"
+GO_FLAGS_LINUX_RELEASE = -trimpath -ldflags="-s -w"
+GO_FLAGS_WINDOWS_RELEASE = -trimpath -ldflags="-s -w -H=windowsgui"
 
 RNNOISE_COMMIT_HASH=70f1d256acd4b34a572f999a05c87bf00b67730d
 PORTAUDIO_COMMIT_HASH=d5b81b82f13ae8498f02e27595aa9c50ab2623db
@@ -82,14 +83,14 @@ linux-dev-debug: third_party/linux
 .PHONY: linux-release
 linux-release: third_party/linux
 	$(FLAGS_LINUX_RELEASE) \
-	go build -tags noassert $(GO_FLAGS_RELEASE) -o build/soundpad
+	go build -tags noassert $(GO_FLAGS_LINUX_RELEASE) -o build/soundpad
 
 	build/soundpad
 
 .PHONY: linux-release-dev
 linux-release-dev: third_party/linux
 	$(FLAGS_LINUX_RELEASE) \
-	go build $(GO_FLAGS_RELEASE) -o build/soundpad
+	go build $(GO_FLAGS_LINUX_RELEASE) -o build/soundpad
 
 	build/soundpad
 
@@ -111,13 +112,13 @@ windows-dev-race: third_party/windows
 windows-release: third_party/windows
 	# CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -H=windowsgui -extldflags '-static -lsetupapi'" -o build/tally.exe
 	$(FLAGS_WINDOWS_RELEASE) \
-	go build -tags noassert $(GO_FLAGS_RELEASE) -o build/Soundpad.exe
+	go build -tags noassert $(GO_FLAGS_WINDOWS_RELEASE) -o build/Soundpad.exe
 
 .PHONY: windows-release-dev
 windows-release-dev: third_party/windows
 	# CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -H=windowsgui -extldflags '-static -lsetupapi'" -o build/tally.exe
 	$(FLAGS_WINDOWS_RELEASE) \
-	go build $(GO_FLAGS_RELEASE) -o build/Soundpad.exe
+	go build $(GO_FLAGS_WINDOWS_RELEASE) -o build/Soundpad.exe
 
 third_party/linux:
 	mkdir -p third_party/linux
