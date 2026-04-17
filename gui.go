@@ -220,18 +220,16 @@ func (s *Scene) Run(storage *Storage, keyListener *KeyListener, audioPlayer *Aud
 			ID:           gui.NewID("profile dropdown"),
 			BgColor:      theme.primary1,
 			Padding:      theme.padding,
-			CornerRadius: gui.Radius(theme.radius.TopLeft, 0, 0, theme.radius.BottomLeft),
+			CornerRadius: theme.radius,
 		},
 		FontConfigProps: gui.FontConfigProps{
 			Font:    theme.fontBold,
 			FgColor: theme.bg1,
 		},
+		OptionsCornerRadius: theme.radius,
 	}, "Select Profile", storage.GetProfileNames(), storage.GetCurrentProfileIdx()))
-	if profileDropdown.IsOpen() && profileDropdown.GetNumberOfOptions() > 0 {
-		profileDropdown.CornerRadius.BottomRight = theme.radius.BottomRight
-	} else {
-		profileDropdown.CornerRadius.BottomRight = 0
-	}
+
+	gui.AddChild(headerBoxCenter, gui.NewSpacerX(gui.NewSizingFixed(3)))
 
 	gui.AddPostUpdate(func() {
 		if profileDropdown.HasChanged() {
@@ -249,10 +247,11 @@ func (s *Scene) Run(storage *Storage, keyListener *KeyListener, audioPlayer *Aud
 	if profileDropdown.GetSelectedIdx() != -1 {
 		deleteProfileBtn := gui.AddChild(headerBoxCenter, gui.NewButton(gui.ButtonProps{
 			BoxProps: gui.BoxProps{
-				SizingY:     gui.Grow(),
-				ChildAlignY: gui.Center,
-				Padding:     gui.Padding(10),
-				BgColor:     theme.error1,
+				SizingY:      gui.Grow(),
+				ChildAlignY:  gui.Center,
+				Padding:      gui.Padding(10, 10, 10, 12),
+				BgColor:      theme.error1,
+				CornerRadius: gui.RadiusOverride(theme.radius, -1, 0, 0, -1),
 			},
 			OnHover: gui.EffectBrighten,
 		}))
@@ -322,17 +321,14 @@ func (s *Scene) Run(storage *Storage, keyListener *KeyListener, audioPlayer *Aud
 	}))
 
 	s.BuildBindings(storage, audioPlayer, keyListener, bodyBox, profileDropdown)
-
 	if s.ctxMenuState == CtxMenuBinding {
 		s.BuildCtxMenuBinding(storage, audioPlayer, keyListener, profileDropdown)
 	}
 
 	s.BuildTrackList(storage, audioPlayer, bodyBox, profileDropdown)
-
 	if s.ctxMenuState == CtxMenuTrack {
 		s.BuildCtxMenuTrack(storage, audioPlayer, keyListener)
 	}
-
 	if s.popupState == PopupRemoveTrackConfirmation {
 		s.BuildPopupRemoveTrackConfirmation(storage, keyListener)
 	}
@@ -876,6 +872,7 @@ func (s *Scene) BuildPopupAddTrack(storage *Storage, audioPlayer *AudioPlayer, k
 			FontConfigProps: gui.FontConfigProps{
 				FgColor: theme.fg2,
 			},
+			OptionsCornerRadius: theme.radius,
 		}, "", []string{"Low", "Medium", "High"}, 0))
 
 		waveCutter := gui.AddChild(body, NewWaveCutter(WaveCutterProps{
@@ -1058,13 +1055,12 @@ func (s *Scene) BuildPopupSettions(storage *Storage, audioPlayer *AudioPlayer, k
 				BgColor:      theme.primary1,
 				Padding:      theme.padding,
 				CornerRadius: theme.radius,
-				BorderWidth:  theme.border,
-				BorderColor:  theme.bg3,
 			},
 			FontConfigProps: gui.FontConfigProps{
 				Font:    theme.fontBold,
 				FgColor: theme.bg1,
 			},
+			OptionsCornerRadius: theme.radius,
 		}, "Select Input Device", storage.inputDeviceNames, int16(storage.selectedInputIdx)))
 
 		outputDeviceBox := gui.AddChild(devicesBox, gui.NewBox(gui.BoxProps{
@@ -1085,6 +1081,7 @@ func (s *Scene) BuildPopupSettions(storage *Storage, audioPlayer *AudioPlayer, k
 				Font:    theme.fontBold,
 				FgColor: theme.bg1,
 			},
+			OptionsCornerRadius: theme.radius,
 		}, "Select Output Device", storage.outputDeviceNames, int16(storage.selectedOutputIdx)))
 
 		refreshDevices := gui.AddChild(body, NewPrimaryButton("reload.png", "Refresh Devices", theme.primary1))
