@@ -1597,7 +1597,7 @@ func (s *Scene) BuildTrackList(storage *Storage, audioPlayer *AudioPlayer, bodyB
 			},
 		}, "No tracks yet"))
 	}
-	for i, track := range storage.Tracks {
+	for i, track := range slices.Backward(storage.Tracks) {
 		trackItemBtn := gui.AddChild(trackList, gui.NewButton(gui.ButtonProps{
 			BoxProps: gui.BoxProps{
 				SizingX:      gui.Grow(),
