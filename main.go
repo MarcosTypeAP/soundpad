@@ -362,9 +362,11 @@ type Profile struct {
 }
 
 type KeyListener struct {
-	keyEventsCh      <-chan crossplatform.KeyEvent
-	eventsBuf        []crossplatform.KeyEvent
-	IsGrabbedByScene bool
+	keyEventsCh         <-chan crossplatform.KeyEvent
+	eventsBuf           []crossplatform.KeyEvent
+	isRecording         bool
+	isKeyComboAvailable bool
+	IsGrabbedByScene    bool
 }
 
 func NewKeyListener(keyEventsCh <-chan crossplatform.KeyEvent) KeyListener {
@@ -373,64 +375,61 @@ func NewKeyListener(keyEventsCh <-chan crossplatform.KeyEvent) KeyListener {
 	}
 }
 
-func (l *KeyListener) Available() int {
-	return len(l.keyEventsCh)
+func (l *KeyListener) getCurrentKeyCombo() KeyCombo {
+	var keys KeyCombo
+
+	for i := range l.eventsBuf {
+		keys[i] = NewKey(uint32(l.eventsBuf[i].Key), KeyKindKeyboard)
+	}
+	slices.Sort(keys[:len(l.eventsBuf)])
+
+	return keys
+}
+
+func (l *KeyListener) StartRecording() {
+	l.eventsBuf = l.eventsBuf[:0]
+	l.Flush()
+	l.isRecording = true
+}
+
+func (l *KeyListener) StopRecording() KeyCombo {
+	if !l.isRecording {
+		return KeyCombo{}
+	}
+
+	l.eventsBuf = l.eventsBuf[:0]
+	l.Flush()
+	l.isRecording = false
+
+	assert.InRange(len(l.eventsBuf), 0, len(KeyCombo{}))
+
+	return l.getCurrentKeyCombo()
+}
+
+func (l *KeyListener) IsRecordingFinished() (KeyCombo, bool) {
+	if len(l.eventsBuf) == 0 {
+		return KeyCombo{}, false
+	}
+
+	for _, event := range l.eventsBuf {
+		if event.IsPressed {
+			return KeyCombo{}, false
+		}
+	}
+
+	return l.getCurrentKeyCombo(), true
+}
+
+func (l *KeyListener) GetRecordingKeyCombo() KeyCombo {
+	return l.getCurrentKeyCombo()
 }
 
 func (l *KeyListener) GetKeyCombo() (keys KeyCombo, ok bool) {
-	l.eventsBuf = l.eventsBuf[:0]
-
-	hasPressedKeys := func() bool {
-		for i := range l.eventsBuf {
-			if l.eventsBuf[i].IsPressed {
-				return true
-			}
-		}
-		return false
+	if !l.isKeyComboAvailable {
+		return KeyCombo{}, false
 	}
 
-	var tickerCh <-chan time.Time
-	if runtime.GOOS == "linux" {
-		tickerCh = time.NewTicker(50 * time.Millisecond).C
-	}
-
-	const timeoutTime = 5 * time.Second
-	timeout := time.NewTimer(timeoutTime)
-
-	hasPressedAKey := false
-	for hasPressedKeys() || !hasPressedAKey {
-		var event crossplatform.KeyEvent
-		select {
-		case event = <-l.keyEventsCh:
-			timeout.Reset(timeoutTime)
-
-		case <-tickerCh: // on Xwayland, it stops receiving events when x11 loses focus
-			if !crossplatform.HasX11Focus() {
-				return KeyCombo{}, false
-			}
-			continue
-
-		case <-timeout.C:
-			raylibTraceLog(rl.LogWarning, "Timed out while reading key combo")
-			return KeyCombo{}, false
-		}
-
-		if event.IsPressed {
-			hasPressedAKey = true
-			l.eventsBuf = slices.DeleteFunc(l.eventsBuf, func(e crossplatform.KeyEvent) bool { return !e.IsPressed })
-			l.eventsBuf = append(l.eventsBuf, event)
-		} else {
-			for i := range l.eventsBuf {
-				if event.Key == l.eventsBuf[i].Key {
-					l.eventsBuf[i] = event
-				}
-			}
-		}
-	}
-
-	if len(l.eventsBuf) > len(KeyCombo{}) {
-		l.eventsBuf = l.eventsBuf[:len(KeyCombo{})]
-	}
+	assert.InRange(len(l.eventsBuf), 1, len(KeyCombo{}))
 
 	for i := range l.eventsBuf {
 		keys[i] = NewKey(uint32(l.eventsBuf[i].Key), KeyKindKeyboard)
@@ -440,16 +439,56 @@ func (l *KeyListener) GetKeyCombo() (keys KeyCombo, ok bool) {
 	return keys, true
 }
 
-func (l *KeyListener) GetKey() Key {
-	if len(l.keyEventsCh) == 0 {
-		return KeyUnset
+func (l *KeyListener) Update() {
+	l.isKeyComboAvailable = false
+
+	if runtime.GOOS == "linux" && !crossplatform.HasX11Focus() {
+		l.eventsBuf = l.eventsBuf[:0]
+		return
 	}
-	for {
-		event := <-l.keyEventsCh
-		if !event.IsPressed {
-			continue
+
+	var event crossplatform.KeyEvent
+	select {
+	case event = <-l.keyEventsCh:
+	default:
+		return
+	}
+
+	if l.isRecording {
+		if event.IsPressed {
+			l.eventsBuf = slices.DeleteFunc(l.eventsBuf, func(e crossplatform.KeyEvent) bool { return !e.IsPressed })
+
+			l.eventsBuf = l.eventsBuf[:min(len(l.eventsBuf), len(KeyCombo{})-1)]
+			l.eventsBuf = append(l.eventsBuf, event)
+		} else {
+			for i := range l.eventsBuf {
+				if l.eventsBuf[i].Key == event.Key {
+					l.eventsBuf[i] = event
+				}
+			}
 		}
-		return NewKey(uint32(event.Key), KeyKindKeyboard)
+
+	} else {
+		eventIdx := slices.IndexFunc(l.eventsBuf, func(e crossplatform.KeyEvent) bool { return e.Key == event.Key })
+
+		if !event.IsPressed {
+			if eventIdx != -1 {
+				l.eventsBuf = slices.Delete(l.eventsBuf, eventIdx, eventIdx+1)
+			}
+			return
+		}
+
+		if eventIdx == -1 {
+			l.eventsBuf = append(l.eventsBuf, event)
+		} else {
+			return
+		}
+
+		if len(l.eventsBuf) == 0 || len(l.eventsBuf) > len(KeyCombo{}) {
+			return
+		}
+
+		l.isKeyComboAvailable = true
 	}
 }
 
@@ -457,6 +496,7 @@ func (l *KeyListener) Flush() {
 	for len(l.keyEventsCh) > 0 {
 		<-l.keyEventsCh
 	}
+	l.eventsBuf = l.eventsBuf[:0]
 }
 
 var ErrInvalidConfig = errors.New("the config file is malformed")
@@ -1545,7 +1585,9 @@ func Main() error {
 			rl.PollInputEvents()
 		}
 
-		if !keyListener.IsGrabbedByScene && keyListener.Available() > 0 {
+		keyListener.Update()
+
+		if !keyListener.IsGrabbedByScene && !keyListener.isRecording {
 			if keys, ok := keyListener.GetKeyCombo(); ok && keys.IsValid() {
 				switch {
 				case DevMode && keys.Equal(KeyToggleGUIDebug):

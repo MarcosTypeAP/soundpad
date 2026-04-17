@@ -24,9 +24,11 @@ type Scene struct {
 
 	popupSubWindow *gui.SubWindow
 	popupState     PopupState
+	popupOnClose   func()
 
 	ctxMenuSubWindow *gui.SubWindow
 	ctxMenuState     CtxMenuState
+	ctxMenuOnClose   func()
 
 	errorPopupSubWindow *gui.SubWindow
 	errorPopupErrMsg    string
@@ -38,10 +40,13 @@ type Scene struct {
 	addTrackFilePath  string
 	addTrackSamples   SamplesFloat32
 
-	selectedBinding *Binding
+	selectedBinding                    *Binding
+	isSelectedBindingListeningKeyCombo bool
 
 	selectedTrack            *Track
 	selectedTrackTestSoundID SoundID
+
+	isSettingsPopupListeningKeyCombo bool
 
 	havePromptedToCleanGarbageFiles bool
 }
@@ -108,17 +113,24 @@ func (s *Scene) OpenPopup(state PopupState) {
 	s.popupState = state
 	s.popupSubWindow.ResetIDs()
 	s.popupSubWindow.Show()
+	s.popupOnClose = nil
 }
 
 func (s *Scene) ClosePopup() {
 	s.popupState = PopupNone
 	s.popupSubWindow.Hide()
+
+	if s.popupOnClose != nil {
+		s.popupOnClose()
+	}
+	s.popupOnClose = nil
 }
 
 func (s *Scene) OpenCtxMenu(state CtxMenuState, position *rl.Vector2) {
 	assert.NotEqual(state, CtxMenuNone)
 	s.ctxMenuState = state
 	s.ctxMenuSubWindow.ResetIDs()
+	s.ctxMenuOnClose = nil
 
 	if position != nil {
 		s.ctxMenuSubWindow.Move(*position)
@@ -132,15 +144,16 @@ func (s *Scene) OpenCtxMenu(state CtxMenuState, position *rl.Vector2) {
 func (s *Scene) CloseCtxMenu() {
 	s.ctxMenuState = CtxMenuNone
 	s.ctxMenuSubWindow.Hide()
+
+	if s.ctxMenuOnClose != nil {
+		s.ctxMenuOnClose()
+	}
+	s.ctxMenuOnClose = nil
 }
 
 func (s *Scene) Run(storage *Storage, keyListener *KeyListener, audioPlayer *AudioPlayer) (shouldExitProgram bool) {
 	//// Build Layout ////
 	gui.ResetLayout()
-
-	if s.ctxMenuState != CtxMenuNone || s.popupState != PopupNone {
-		keyListener.IsGrabbedByScene = true
-	}
 
 	if len(storage.garbageFiles) > 0 && !s.havePromptedToCleanGarbageFiles {
 		s.havePromptedToCleanGarbageFiles = true
@@ -212,7 +225,7 @@ func (s *Scene) Run(storage *Storage, keyListener *KeyListener, audioPlayer *Aud
 	})
 
 	if s.popupState == PopupAddTrack {
-		s.BuildPopupAddTrack(storage, audioPlayer, keyListener)
+		s.BuildPopupAddTrack(storage, audioPlayer)
 	}
 
 	profileDropdown := gui.AddChild(headerBoxCenter, gui.NewDropdown(gui.DropdownProps{
@@ -268,7 +281,7 @@ func (s *Scene) Run(storage *Storage, keyListener *KeyListener, audioPlayer *Aud
 		})
 
 		if s.popupState == PopupRemoveProfileConfirmation {
-			s.BuildPopupRemoveProfileConfirmation(storage, keyListener, profileDropdown)
+			s.BuildPopupRemoveProfileConfirmation(storage,  profileDropdown)
 		}
 	}
 
@@ -295,7 +308,7 @@ func (s *Scene) Run(storage *Storage, keyListener *KeyListener, audioPlayer *Aud
 	})
 
 	if s.popupState == PopupAddProfile {
-		s.BuildPopupAddProfile(storage, keyListener, profileDropdown)
+		s.BuildPopupAddProfile(storage, profileDropdown)
 	}
 
 	settingsBtn := gui.AddChild(headerBoxRight, NewPrimaryButton("settings.png", "", theme.primary1))
@@ -327,10 +340,10 @@ func (s *Scene) Run(storage *Storage, keyListener *KeyListener, audioPlayer *Aud
 
 	s.BuildTrackList(storage, audioPlayer, bodyBox, profileDropdown)
 	if s.ctxMenuState == CtxMenuTrack {
-		s.BuildCtxMenuTrack(storage, audioPlayer, keyListener)
+		s.BuildCtxMenuTrack(storage, audioPlayer)
 	}
 	if s.popupState == PopupRemoveTrackConfirmation {
-		s.BuildPopupRemoveTrackConfirmation(storage, keyListener)
+		s.BuildPopupRemoveTrackConfirmation(storage )
 	}
 
 	playerBarBox := gui.AddChild(root, gui.NewBox(gui.BoxProps{
@@ -377,7 +390,7 @@ func (s *Scene) Run(storage *Storage, keyListener *KeyListener, audioPlayer *Aud
 	})
 
 	if s.ctxMenuState == CtxMenuGain {
-		s.BuildCtxMenuGain(storage, audioPlayer, keyListener)
+		s.BuildCtxMenuGain(storage, audioPlayer)
 	}
 
 	if s.errorPopupErrMsg != "" {
@@ -396,8 +409,8 @@ func (s *Scene) Run(storage *Storage, keyListener *KeyListener, audioPlayer *Aud
 		keyListener.IsGrabbedByScene = false
 	}
 
-	if keyListener.IsGrabbedByScene {
-		keyListener.Flush()
+	if s.ctxMenuState != CtxMenuNone || s.popupState != PopupNone {
+		keyListener.IsGrabbedByScene = true
 	}
 
 	//// Render ////
@@ -746,9 +759,7 @@ func (s *Scene) BuildPopupPromptToCleanGarbageFiles(storage *Storage) {
 	})
 }
 
-func (s *Scene) BuildPopupAddTrack(storage *Storage, audioPlayer *AudioPlayer, keyListener *KeyListener) {
-	keyListener.Flush()
-
+func (s *Scene) BuildPopupAddTrack(storage *Storage, audioPlayer *AudioPlayer) {
 	NewPopup(s.popupSubWindow, "Add Track", func(body, buttons *gui.Box) {
 		configBox := gui.AddChild(body, gui.NewBox(gui.BoxProps{
 			SizingX:  gui.Grow(),
@@ -958,9 +969,7 @@ func (s *Scene) BuildPopupAddTrack(storage *Storage, audioPlayer *AudioPlayer, k
 	})
 }
 
-func (s *Scene) BuildPopupRemoveProfileConfirmation(storage *Storage, keyListener *KeyListener, profileDropdown *gui.Dropdown) {
-	keyListener.Flush()
-
+func (s *Scene) BuildPopupRemoveProfileConfirmation(storage *Storage, profileDropdown *gui.Dropdown) {
 	NewPopup(s.popupSubWindow, "Confirm Deletion", func(body, buttons *gui.Box) {
 		profile := storage.GetCurrentProfile()
 		assert.NotNil(profile)
@@ -990,9 +999,7 @@ func (s *Scene) BuildPopupRemoveProfileConfirmation(storage *Storage, keyListene
 	})
 }
 
-func (s *Scene) BuildPopupAddProfile(storage *Storage, keyListener *KeyListener, profileDropdown *gui.Dropdown) {
-	keyListener.Flush()
-
+func (s *Scene) BuildPopupAddProfile(storage *Storage, profileDropdown *gui.Dropdown) {
 	NewPopup(s.popupSubWindow, "Add Profile", func(body, buttons *gui.Box) {
 		profileNameInput := gui.AddChild(body, gui.NewTextInput(gui.TextInputProps{
 			BoxProps: gui.BoxProps{
@@ -1034,7 +1041,10 @@ func (s *Scene) BuildPopupAddProfile(storage *Storage, keyListener *KeyListener,
 }
 
 func (s *Scene) BuildPopupSettions(storage *Storage, audioPlayer *AudioPlayer, keyListener *KeyListener) {
-	keyListener.Flush()
+	s.popupOnClose = func() {
+		s.isSettingsPopupListeningKeyCombo = false
+		keyListener.StopRecording()
+	}
 
 	NewPopup(s.popupSubWindow, "Settings", func(body, buttons *gui.Box) {
 		devicesBox := gui.AddChild(body, gui.NewBox(gui.BoxProps{
@@ -1091,7 +1101,21 @@ func (s *Scene) BuildPopupSettions(storage *Storage, audioPlayer *AudioPlayer, k
 			ChildAlignY: gui.Center,
 		}))
 		gui.AddChild(clearSoundsKeyComboBox, gui.NewText(gui.TextProps{}, "Clear sounds"))
-		setClearSoundsKeyComboBtn := gui.AddChild(clearSoundsKeyComboBox, NewSecondaryButton("keyboard.png", storage.ClearSoundsKeyCombo.String()))
+		var setClearSoundsKeyComboBtn *gui.Button
+		{
+			var btnText string
+			if s.isSettingsPopupListeningKeyCombo {
+				keys := keyListener.GetRecordingKeyCombo()
+				if keys == (KeyCombo{}) {
+					btnText = "Listening..."
+				} else {
+					btnText = keys.String()
+				}
+			} else {
+				btnText = storage.ClearSoundsKeyCombo.String()
+			}
+			setClearSoundsKeyComboBtn = gui.AddChild(clearSoundsKeyComboBox, NewSecondaryButton("keyboard.png", btnText))
+		}
 
 		if DevMode {
 			debugModeToggleBox := gui.AddChild(body, gui.NewBox(gui.BoxProps{
@@ -1281,29 +1305,29 @@ func (s *Scene) BuildPopupSettions(storage *Storage, audioPlayer *AudioPlayer, k
 			}
 
 			if setClearSoundsKeyComboBtn.IsLeftButtonPressed() {
-				setClearSoundsKeyComboBtn.GetChild(1).(*gui.Text).SetText("Listening...")
-				gui.ComputeLayout()
+				keyListener.StartRecording()
+				s.isSettingsPopupListeningKeyCombo = true
+			}
+			if s.isSettingsPopupListeningKeyCombo {
+				keys, ok := keyListener.IsRecordingFinished()
+				if !ok {
+					return
+				}
 
-				keyListener.Flush()
+				s.isSettingsPopupListeningKeyCombo = false
 
-				gui.AddPostRender(func() {
-					rl.DrawRenderBatchActive()
-					rl.SwapScreenBuffer()
+				if !keys.IsValid() {
+					return
+				}
 
-					keys, ok := keyListener.GetKeyCombo()
-					if !ok || !keys.IsValid() {
-						return
-					}
+				if keys.Equal(NewKey(uint32(crossplatform.KeyEscape), KeyKindKeyboard)) {
+					keys = KeyCombo{}
+				}
 
-					if keys.Equal(NewKey(uint32(crossplatform.KeyEscape), KeyKindKeyboard)) {
-						keys = KeyCombo{}
-					}
-
-					if err := storage.SetClearSoundsKeyCombo(keys); err != nil {
-						s.OpenErrorPopup(fmt.Sprintf("Could not set the key combo %q: %s", keys, err), false)
-						return
-					}
-				})
+				if err := storage.SetClearSoundsKeyCombo(keys); err != nil {
+					s.OpenErrorPopup(fmt.Sprintf("Could not set the key combo %q: %s", keys, err), false)
+					return
+				}
 			}
 		})
 	})
@@ -1452,7 +1476,7 @@ func (s *Scene) BuildBindings(storage *Storage, audioPlayer *AudioPlayer, keyLis
 			}, track.Name))
 
 			gui.AddPostUpdate(func() {
-				if bindingBtn.IsLeftButtonPressed() {
+				if binding.IsEnabled && bindingBtn.IsLeftButtonPressed() {
 					if _, err := audioPlayer.AddTrack(storage, binding.TrackID, false); err != nil {
 						track := storage.GetTrackByID(binding.TrackID)
 						assert.NotNil(track)
@@ -1486,6 +1510,12 @@ func (s *Scene) BuildBindings(storage *Storage, audioPlayer *AudioPlayer, keyLis
 func (s *Scene) BuildCtxMenuBinding(storage *Storage, audioPlayer *AudioPlayer, keyListener *KeyListener, profileDropdown *gui.Dropdown) {
 	assert.NotNil(s.selectedBinding)
 
+	s.ctxMenuOnClose = func() {
+		keyListener.StopRecording()
+		s.isSelectedBindingListeningKeyCombo = false
+		s.selectedBinding = nil
+	}
+
 	NewCtxMenu(s.ctxMenuSubWindow, func(content *gui.Box) {
 		assert.NotEqual(s.selectedBinding.TrackID, 0)
 		track := storage.GetTrackByID(s.selectedBinding.TrackID)
@@ -1502,7 +1532,15 @@ func (s *Scene) BuildCtxMenuBinding(storage *Storage, audioPlayer *AudioPlayer, 
 			Wrapping: gui.EllipsisOverflow,
 		}, track.Name))
 
-		if s.selectedBinding.Keys.IsSet() {
+		if s.selectedBinding.Keys.IsSet() || s.isSelectedBindingListeningKeyCombo {
+			var keyComboString string
+
+			if s.isSelectedBindingListeningKeyCombo {
+				keyComboString = keyListener.GetRecordingKeyCombo().String()
+			} else {
+				keyComboString = s.selectedBinding.GetKeysString()
+			}
+
 			gui.AddChild(content, gui.NewText(gui.TextProps{
 				BoxProps: gui.BoxProps{
 					SizingX:     gui.Grow(),
@@ -1514,10 +1552,10 @@ func (s *Scene) BuildCtxMenuBinding(storage *Storage, audioPlayer *AudioPlayer, 
 					FgColor:  theme.fg3,
 				},
 				Wrapping: gui.EllipsisOverflow,
-			}, s.selectedBinding.GetKeysString()))
+			}, keyComboString))
 		}
 
-		changeKeyBtn := gui.AddChild(content, NewCtxMenuButton("keyboard.png", "Change Keys", theme.fg2, theme.bg3))
+		changeKeyBtn := gui.AddChild(content, NewCtxMenuButton("keyboard.png", gui.Ternary(s.isSelectedBindingListeningKeyCombo, "Listening...", "Change Keys"), theme.fg2, theme.bg3))
 		disableBtn := gui.AddChild(content, NewCtxMenuButton("disabled.png", gui.Ternary(s.selectedBinding.IsEnabled, "Disable", "Enable"), theme.fg2, theme.bg3))
 		removeBtn := gui.AddChild(content, NewCtxMenuButton("trash.png", "Remove", theme.fg2, theme.error2))
 
@@ -1541,29 +1579,29 @@ func (s *Scene) BuildCtxMenuBinding(storage *Storage, audioPlayer *AudioPlayer, 
 			}
 
 			if changeKeyBtn.IsLeftButtonPressed() {
-				changeKeyBtn.GetChild(0).(*gui.Text).SetText("Listening...")
-				gui.ComputeLayout()
+				s.isSelectedBindingListeningKeyCombo = true
+				keyListener.StartRecording()
+			}
+			if s.isSelectedBindingListeningKeyCombo {
+				keys, ok := keyListener.IsRecordingFinished()
+				if !ok {
+					return
+				}
 
-				keyListener.Flush()
+				s.isSelectedBindingListeningKeyCombo = false
 
-				gui.AddPostRender(func() {
-					rl.DrawRenderBatchActive()
-					rl.SwapScreenBuffer()
+				if !keys.IsValid() {
+					return
+				}
 
-					keys, ok := keyListener.GetKeyCombo()
-					if !ok || !keys.IsValid() {
-						return
-					}
+				if keys.Equal(NewKey(uint32(crossplatform.KeyEscape), KeyKindKeyboard)) {
+					keys = KeyCombo{}
+				}
 
-					if keys.Equal(NewKey(uint32(crossplatform.KeyEscape), KeyKindKeyboard)) {
-						keys = KeyCombo{}
-					}
-
-					if err := storage.SetBindingKeyCombo(s.selectedBinding, keys); err != nil {
-						s.OpenErrorPopup(fmt.Sprintf("Could not set the key binding: %s", err), false)
-						return
-					}
-				})
+				if err := storage.SetBindingKeyCombo(s.selectedBinding, keys); err != nil {
+					s.OpenErrorPopup(fmt.Sprintf("Could not set the key binding: %s", err), false)
+					return
+				}
 			}
 		})
 	})
@@ -1720,10 +1758,8 @@ func (s *Scene) BuildTrackList(storage *Storage, audioPlayer *AudioPlayer, bodyB
 	}
 }
 
-func (s *Scene) BuildCtxMenuTrack(storage *Storage, audioPlayer *AudioPlayer, keyListener *KeyListener) {
+func (s *Scene) BuildCtxMenuTrack(storage *Storage, audioPlayer *AudioPlayer) {
 	assert.NotNil(s.selectedTrack)
-
-	keyListener.Flush()
 
 	NewCtxMenu(s.ctxMenuSubWindow, func(content *gui.Box) {
 		nameInput := gui.AddChild(content, gui.NewTextInput(gui.TextInputProps{
@@ -1838,11 +1874,9 @@ func (s *Scene) BuildCtxMenuTrack(storage *Storage, audioPlayer *AudioPlayer, ke
 	})
 }
 
-func (s *Scene) BuildPopupRemoveTrackConfirmation(storage *Storage, keyListener *KeyListener) {
+func (s *Scene) BuildPopupRemoveTrackConfirmation(storage *Storage) {
 	assert.NotEqual(s.trackIDToDelete, 0)
 	track := storage.GetTrackByID(s.trackIDToDelete)
-
-	keyListener.Flush()
 
 	NewPopup(s.popupSubWindow, "Confirm Deletion", func(body, buttons *gui.Box) {
 		gui.AddChild(body, gui.NewText(gui.TextProps{
@@ -1870,9 +1904,7 @@ func (s *Scene) BuildPopupRemoveTrackConfirmation(storage *Storage, keyListener 
 	})
 }
 
-func (s *Scene) BuildCtxMenuGain(storage *Storage, audioPlayer *AudioPlayer, keyListener *KeyListener) {
-	keyListener.Flush()
-
+func (s *Scene) BuildCtxMenuGain(storage *Storage, audioPlayer *AudioPlayer) {
 	NewCtxMenu(s.ctxMenuSubWindow, func(content *gui.Box) {
 		gui.AddChild(content, gui.NewText(gui.TextProps{
 			BoxProps: gui.BoxProps{
