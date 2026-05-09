@@ -110,13 +110,11 @@ windows-dev-race: third_party/windows
 
 .PHONY: windows-release
 windows-release: third_party/windows
-	# CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -H=windowsgui -extldflags '-static -lsetupapi'" -o build/tally.exe
 	$(FLAGS_WINDOWS_RELEASE) \
 	go build -tags noassert $(GO_FLAGS_WINDOWS_RELEASE) -o build/Soundpad.exe
 
 .PHONY: windows-release-dev
 windows-release-dev: third_party/windows
-	# CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -H=windowsgui -extldflags '-static -lsetupapi'" -o build/tally.exe
 	$(FLAGS_WINDOWS_RELEASE) \
 	go build $(GO_FLAGS_WINDOWS_RELEASE) -o build/Soundpad.exe
 
