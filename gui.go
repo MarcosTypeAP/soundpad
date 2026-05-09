@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -915,7 +915,7 @@ func (s *Scene) BuildPopupAddTrack(storage *Storage, audioPlayer *AudioPlayer) {
 			FontConfigProps: gui.FontConfigProps{
 				FgColor: theme.fg2,
 			},
-		}, path.Base(s.addTrackFilePath)))
+		}, filepath.Base(s.addTrackFilePath)))
 		gui.AddChild(configLeftVBox, gui.NewSpacerY())
 		nameInput := gui.AddChild(configLeftVBox, gui.NewTextInput(gui.TextInputProps{
 			BoxProps: gui.BoxProps{

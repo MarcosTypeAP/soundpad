@@ -37,28 +37,28 @@ func init() {
 	configPath, err := os.UserConfigDir()
 	assert.NoError(err, "WTF WHAT KIND OF OS ARE YOU ON???")
 
-	appConfigDir := path.Join(configPath, "soundpad")
+	appConfigDir := filepath.Join(configPath, "soundpad")
 	err = os.MkdirAll(appConfigDir, 0755)
 	if err != nil {
 		logAndOpenLoadingErrorWindow(fmt.Errorf("Error: could not create the directory %q: %w\n", appConfigDir, err))
 		os.Exit(1)
 	}
 
-	StorageTracksDirPath = path.Join(appConfigDir, "tracks")
+	StorageTracksDirPath = filepath.Join(appConfigDir, "tracks")
 	err = os.MkdirAll(StorageTracksDirPath, 0755)
 	if err != nil {
 		logAndOpenLoadingErrorWindow(fmt.Errorf("Error: could not create the directory %q: %w\n", StorageTracksDirPath, err))
 		os.Exit(1)
 	}
 
-	StorageImagesDirPath = path.Join(appConfigDir, "images")
+	StorageImagesDirPath = filepath.Join(appConfigDir, "images")
 	err = os.MkdirAll(StorageImagesDirPath, 0755)
 	if err != nil {
 		logAndOpenLoadingErrorWindow(fmt.Errorf("Error: could not create the directory %q: %w\n", StorageImagesDirPath, err))
 		os.Exit(1)
 	}
 
-	StorageConfigFilePath = path.Join(appConfigDir, "config.json")
+	StorageConfigFilePath = filepath.Join(appConfigDir, "config.json")
 }
 
 type ID = uint64
@@ -780,14 +780,14 @@ func (s *Storage) AddTrack(name, imagePath string, samples Samples, gain float32
 		Gain:    gain,
 		samples: samples,
 	}
-	track.trackPath = path.Join(StorageTracksDirPath, fmt.Sprint(track.ID)+FileExtensionWAV)
+	track.trackPath = filepath.Join(StorageTracksDirPath, fmt.Sprint(track.ID)+FileExtensionWAV)
 
 	wave := NewWaveFromMonoSamples(samples)
 	rl.ExportWave(wave, track.trackPath)
 	raylibTraceLog(rl.LogInfo, "Saved track: "+name+" ("+track.trackPath+")")
 
 	if imagePath != "" {
-		track.imagePath = path.Join(StorageImagesDirPath, fmt.Sprint(track.ID)+FileExtensionPNG)
+		track.imagePath = filepath.Join(StorageImagesDirPath, fmt.Sprint(track.ID)+FileExtensionPNG)
 
 		err := ExportImageResize(imagePath, track.imagePath)
 		if err != nil {
@@ -861,7 +861,7 @@ func (s *Storage) RemoveTrackImage(trackID ID) error {
 func (s *Storage) SetTrackImage(trackID ID, imagePath string) error {
 	track := s.GetTrackByID(trackID)
 
-	newImagePath := path.Join(StorageImagesDirPath, fmt.Sprint(track.ID)+FileExtensionPNG)
+	newImagePath := filepath.Join(StorageImagesDirPath, fmt.Sprint(track.ID)+FileExtensionPNG)
 
 	if err := ExportImageResize(imagePath, newImagePath); err != nil {
 		return fmt.Errorf("copying image: %w", err)
@@ -1102,7 +1102,7 @@ func (s *Storage) Load() error {
 	imageRegex := regexp.MustCompile(`^(\d+)\.png$`)
 
 	for _, entry := range trackEntries {
-		entryPath := path.Join(StorageTracksDirPath, entry.Name())
+		entryPath := filepath.Join(StorageTracksDirPath, entry.Name())
 
 		if matches := trackRegex.FindStringSubmatch(entry.Name()); matches != nil {
 			assert.Equal(len(matches), 2)
@@ -1124,7 +1124,7 @@ func (s *Storage) Load() error {
 	}
 
 	for _, entry := range imageEntries {
-		entryPath := path.Join(StorageImagesDirPath, entry.Name())
+		entryPath := filepath.Join(StorageImagesDirPath, entry.Name())
 
 		if matches := imageRegex.FindStringSubmatch(entry.Name()); matches != nil {
 			assert.Equal(len(matches), 2)
