@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/MarcosTypeAP/go-assert v1.4.0
-	github.com/MarcosTypeAP/go-rlgui v1.0.0
+	github.com/MarcosTypeAP/go-rlgui v1.1.0
 	github.com/MarcosTypeAP/go-rnnoise v1.1.0
 	github.com/ebitengine/purego v0.9.1
 	github.com/gen2brain/raylib-go/raylib v0.55.1
