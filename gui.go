@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -1021,6 +1022,9 @@ func (s *Scene) BuildPopupAddTrack(storage *Storage, audioPlayer *AudioPlayer) {
 					s.addTrackImagePath = filePath
 				}
 			}
+			if trackAddImgBtn.IsRightButtonPressed() {
+				s.addTrackImagePath = s.getClipboardImagePath()
+			}
 
 			if nameInput.ErrorMessage != "" && nameInput.HasChanged() {
 				name := strings.TrimSpace(nameInput.Value())
@@ -1058,6 +1062,34 @@ func (s *Scene) BuildPopupAddTrack(storage *Storage, audioPlayer *AudioPlayer) {
 			}
 		})
 	})
+}
+
+func (s *Scene) getClipboardImagePath() string {
+	image, err := crossplatform.GetClipboardImage()
+	if err != nil {
+		s.OpenErrorPopup(fmt.Sprintf("Could not load image from clipboard: %s", err), false)
+		return ""
+	}
+	assert.NotNil(image)
+	defer rl.UnloadImage(image)
+
+	file, err := os.CreateTemp("", "soundpad-tmp-track-image-*.png")
+	if err != nil {
+		s.OpenErrorPopup(fmt.Sprintf("Could not use image from clipboard: failed to create a temporary image file: %s", err), false)
+		return ""
+	}
+	defer file.Close()
+
+	data := rl.ExportImageToMemory(*image, ".png")
+	assert.NotEqual(len(data), 0)
+
+	_, err = file.Write(data)
+	if err != nil {
+		s.OpenErrorPopup(fmt.Sprintf("Could not use image from clipboard: failed to create a temporary image file: %s", err), false)
+		return ""
+	}
+
+	return file.Name()
 }
 
 func (s *Scene) BuildPopupRemoveProfileConfirmation(storage *Storage, profileDropdown *gui.Dropdown) {
@@ -1929,6 +1961,14 @@ func (s *Scene) BuildCtxMenuTrack(storage *Storage, audioPlayer *AudioPlayer) {
 				}
 				if ok {
 					if err := storage.SetTrackImage(s.selectedTrack.ID, filePath); err != nil {
+						s.OpenErrorPopup(fmt.Sprintf("Could not set the track image: %s", err), false)
+						return
+					}
+				}
+			}
+			if changeImageBtn.IsRightButtonPressed() {
+				if imagePath := s.getClipboardImagePath(); imagePath != "" {
+					if err := storage.SetTrackImage(s.selectedTrack.ID, imagePath); err != nil {
 						s.OpenErrorPopup(fmt.Sprintf("Could not set the track image: %s", err), false)
 						return
 					}

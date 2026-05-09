@@ -3,15 +3,33 @@ package crossplatform
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"unicode/utf16"
 	"unsafe"
 
 	"github.com/MarcosTypeAP/go-assert"
+	rl "github.com/gen2brain/raylib-go/raylib"
 	"github.com/gordonklaus/portaudio"
 	"golang.org/x/sys/windows"
 )
+
+func GetClipboardImage() (*rl.Image, error) {
+	image := rl.GetClipboardImage()
+	if !rl.IsImageValid(&image) {
+		clipboardText := rl.GetClipboardText()
+		if filepath.VolumeName(clipboardText) != "" {
+			image := rl.LoadImage(clipboardText)
+			if !rl.IsImageValid(image) {
+				return nil, fmt.Errorf("image format not supported: %s", clipboardText)
+			}
+			return image, nil
+		}
+		return nil, fmt.Errorf("no supported image found in clipboard (File Explorer does not copy the image, you should copy its path instead)")
+	}
+	return &image, nil
+}
 
 func HasX11Focus() bool {
 	assert.Unreachable("should not be called")

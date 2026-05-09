@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -12,6 +14,108 @@ import (
 	rl "github.com/gen2brain/raylib-go/raylib"
 	"github.com/gordonklaus/portaudio"
 )
+
+func GetClipboardImage() (*rl.Image, error) {
+	var getClipboardImage func(mimetype string) ([]byte, error)
+
+	switch {
+	case os.Getenv("WAYLAND_DISPLAY") != "":
+		getClipboardImage = getClipboardImageWayland
+
+	case os.Getenv("DISPLAY") != "":
+		getClipboardImage = getClipboardImageX11
+
+	default:
+		return nil, fmt.Errorf("missing $DISPLAY and $WAYLAND_DISPLAY environment variables")
+	}
+
+	{
+		data, err := getClipboardImage("image/png")
+		if err != nil {
+			return nil, err
+		}
+		if data != nil {
+			image := rl.LoadImageFromMemory(".png", data, int32(len(data)))
+			if !rl.IsImageValid(image) {
+				return nil, fmt.Errorf("invalid PNG image")
+			}
+			return image, nil
+		}
+	}
+
+	{
+		data, err := getClipboardImage("image/jpg")
+		if err != nil {
+			return nil, err
+		}
+		if data != nil {
+			image := rl.LoadImageFromMemory(".jpg", data, int32(len(data)))
+			if !rl.IsImageValid(image) {
+				return nil, fmt.Errorf("invalid JPG image")
+			}
+			return image, nil
+		}
+	}
+
+	clipboardText := rl.GetClipboardText()
+	if filepath.VolumeName(clipboardText) != "" {
+		image := rl.LoadImage(clipboardText)
+		if !rl.IsImageValid(image) {
+			return nil, fmt.Errorf("unsupported image file: %s", clipboardText)
+		}
+		return image, nil
+	}
+
+	return nil, fmt.Errorf("no supported image found in clipboard")
+}
+
+func getClipboardImageX11(mimetype string) ([]byte, error) {
+	xclipAbsPath, err := exec.LookPath("xclip")
+	if err != nil {
+		return nil, fmt.Errorf(`missing dependency "xclip" (can be installed in debian-based systems with "apt install xclip")`)
+	}
+
+	var stdout, stderr bytes.Buffer
+
+	cmd := exec.Command(xclipAbsPath, "-selection", "clipboard", "-target", mimetype, "-out")
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err = cmd.Run()
+	if err != nil {
+		stderrString := stderr.String()
+		if strings.Contains(stderrString, "target "+mimetype+" not available") {
+			return nil, nil
+		}
+		rl.TraceLog(rl.LogError, stderrString)
+		return nil, fmt.Errorf("pasting image: %w", err)
+	}
+	return stdout.Bytes(), nil
+}
+
+func getClipboardImageWayland(mimetype string) ([]byte, error) {
+	wlpasteAbsPath, err := exec.LookPath("wl-paste")
+	if err != nil {
+		return nil, fmt.Errorf(`missing dependency "wl-paste" (can be installed in debian-based systems with "apt install wl-clipboard")`)
+	}
+
+	var stdout, stderr bytes.Buffer
+
+	cmd := exec.Command(wlpasteAbsPath, "--type", mimetype)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err = cmd.Run()
+	if err != nil {
+		stderrString := stderr.String()
+		if strings.Contains(stderrString, `Clipboard content is not available as requested type "`+mimetype+`"`) {
+			return nil, nil
+		}
+		rl.TraceLog(rl.LogError, stderrString)
+		return nil, fmt.Errorf("pasting image: %w", err)
+	}
+	return stdout.Bytes(), nil
+}
 
 const VirtualMicSinkName = "SoundpadSink"
 const VirtualMicSinkMonitorName = "SoundpadSink.monitor"
