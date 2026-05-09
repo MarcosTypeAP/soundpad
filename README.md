@@ -13,7 +13,7 @@ A soundboard (made with [go-rlgui](https://github.com/MarcosTypeAP/go-rlgui) ツ
 
 ## Installation
 
-This program does not require installation, as it is a single statically compiled binary, you can just run it. But if you really want to install it:
+This program **DOES NOT** require installation, as it is a single statically compiled binary, you can just run it. But if you really want to install it:
 
 ### Linux
 
@@ -60,9 +60,10 @@ In your communication app (Discord, TeamSpeak, etc.), set your microphone input 
 - Multiple sounds playing simultaneously, with a hotkey to clear them all
 - Fine volume gain control
 - Audio wave cutter, saving to `Low` (8bit), `Medium` (16bit), or `High` (32bit) quality
+- Paste a PNG/JPG by right-clicking any "Add/Change Image" button
 - Noise suppression passthrough — your real mic goes through [RNNoise](https://github.com/xiph/rnnoise) before being forwarded to the virtual mic
 
-> Just a note: You can right-click `Tracks` and `Bindings` to display options.
+> Just a note: You can right-click things to display option menus.
 
 ## Platform notes
 
@@ -82,6 +83,7 @@ In your communication app (Discord, TeamSpeak, etc.), set your microphone input 
 - `zenity` — file picker dialog
 - `libX11` and `libXi` — global hotkey listening
 - `bluetoothctl` (`bluez`) — optional, used to resolve friendly names for Bluetooth devices
+- `xclip` (X11) / `wl-clipboard` (Wayland) - optional, used to read images from the clipboard
 
 > The core dependencies are probably already installed on your system.
 
@@ -92,11 +94,21 @@ In your communication app (Discord, TeamSpeak, etc.), set your microphone input 
 $ apt install -y --no-install-recommends libxi6 libx11-6 pulseaudio-utils libasound-dev libpulse0 zenity
 
 # Optional
-$ apt install -y --no-install-recommends bluez
+# - X11
+$ apt install -y --no-install-recommends bluez xclip
+# - Wayland
+$ apt install -y --no-install-recommends bluez wl-clipboard
 ```
 
 **Windows:**
 - [VB-CABLE Driver](https://vb-audio.com/Cable)
+
+> After restarting, to check if the installation was successful, make sure these new devices have been added: 
+>
+> <p>
+>    <img src="assets/images/default-input.png" alt="Control Panel - Input Devices" width="300px">
+>    <img src="assets/images/default-output.png" alt="Control Panel - Output Devices" width="300px">
+> </p>
 
 ## Building from source
 
