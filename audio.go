@@ -80,6 +80,41 @@ func _exponentialToLinearGain(x float32) float32 {
 	return linear
 }
 
+
+func NewWave(sampleCount, sampleRate, sampleSize, channels int, data unsafe.Pointer) rl.Wave {
+	return rl.Wave{
+		FrameCount: uint32(sampleCount),
+		SampleRate: uint32(sampleRate),
+		SampleSize: uint32(sampleSize),
+		Channels:   uint32(channels),
+		Data:       data,
+	}
+}
+
+func NewWaveFromMonoSamples(samples Samples) rl.Wave {
+	switch samples := samples.(type) {
+	case SamplesInt8:
+		data := make([]uint8, len(samples))
+		for i := range data {
+			data[i] = uint8(int(samples[i]) + 128)
+		}
+		return NewWave(len(samples), SampleRate, 8, 1, unsafe.Pointer(&data[0]))
+
+	case SamplesInt16:
+		data := make([]int16, len(samples))
+		copy(data, samples)
+		return NewWave(len(samples), SampleRate, 16, 1, unsafe.Pointer(&data[0]))
+
+	case SamplesFloat32:
+		data := make([]float32, len(samples))
+		copy(data, samples)
+		return NewWave(len(samples), SampleRate, 32, 1, unsafe.Pointer(&data[0]))
+	}
+
+	assert.Unreachable()
+	return rl.Wave{}
+}
+
 func LoadSamplesFromTrackFile(trackPath string) (Samples, error) {
 	if filepath.Ext(trackPath) != FileExtensionWAV {
 		return nil, fmt.Errorf("file has wrong extension, must be "+FileExtensionWAV+": %s", trackPath)
