@@ -1551,15 +1551,22 @@ func Main() error {
 		}
 	}()
 
-	TimestampNever := int64(math.MaxInt64)
+	const TimestampNever int64 = math.MaxInt64
+	const TimestampLongTimeAgo int64 = 0
+
 	nextWindowResizeSaveTimestamp := TimestampNever
+
+	suspendRenderAtTimestamp := TimestampLongTimeAgo
 
 	shouldExit := false
 	isRenderingSuspended := false
 
 	for !rl.WindowShouldClose() && !shouldExit {
+		if !rl.IsWindowFocused() && rl.GetMouseDelta() != (rl.Vector2{}) {
+			suspendRenderAtTimestamp = time.Now().Add(5 * time.Second).Unix()
+		}
 
-		if !storage.IsPauseRenderEnabled || rl.IsWindowFocused() {
+		if !storage.IsPauseRenderEnabled || rl.IsWindowFocused() || time.Now().Unix() < suspendRenderAtTimestamp {
 
 			if windowSize := gui.GetScreenSize(); windowSize != storage.WindowSize {
 				storage.WindowSize = windowSize
