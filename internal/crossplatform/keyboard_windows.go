@@ -1,10 +1,9 @@
 package crossplatform
 
 import (
+	"fmt"
 	"runtime"
-	"sync/atomic"
 	"syscall"
-	"time"
 	"unsafe"
 
 	"github.com/MarcosTypeAP/go-assert"
@@ -17,19 +16,22 @@ var (
 	procSetWindowsHookEx    = user32.NewProc("SetWindowsHookExW")
 	procCallNextHookEx      = user32.NewProc("CallNextHookEx")
 	procUnhookWindowsHookEx = user32.NewProc("UnhookWindowsHookEx")
-	procPeekMessage         = user32.NewProc("PeekMessageW")
+	procGetMessage          = user32.NewProc("GetMessageW")
+	procPostThreadMessage   = user32.NewProc("PostThreadMessageW")
 	procGetKeyNameText      = user32.NewProc("GetKeyNameTextW")
-	// procGetMessage          = user32.NewProc("GetMessageW")
 	// procGetMessageExtraInfo = user32.NewProc("GetMessageExtraInfo")
 )
 
 const (
 	WHKeyboard   = 2
 	WHKeyboardLL = 13
+
 	WMKeydown    = 256
 	WMKeyup      = 257
 	WMSysKeydown = 260
 	WMSysKeyup   = 261
+
+	WMQuit = 18
 
 	LLKHFExtended = 1
 	LLKHFUp       = 128
@@ -90,10 +92,12 @@ DropEvent:
 	return ret
 })
 
-var stopMsgLoopFlag atomic.Bool
+var msgLoopThreadID uint32
 
 func BeginListeningKeyPresses() (<-chan KeyEvent, error) {
 	assert.Equal(hook, 0, "it is already listening")
+
+	ready := make(chan struct{})
 
 	go func() {
 		runtime.LockOSThread()
@@ -103,15 +107,23 @@ func BeginListeningKeyPresses() (<-chan KeyEvent, error) {
 		hook, _, err = procSetWindowsHookEx.Call(WHKeyboardLL, hookProc, 0, 0)
 		assert.NotEqual(hook, 0, err)
 
-		stopMsgLoopFlag.Store(false)
+		msgLoopThreadID = windows.GetCurrentThreadId()
+		close(ready)
 
-		for !stopMsgLoopFlag.Load() {
+		for {
 			var msg MSG
-			_, _, _ = procPeekMessage.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0, PMRemove)
-
-			time.Sleep(50 * time.Millisecond)
+			ret, _, _ := procGetMessage.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0)
+			if ret == 0 { // WM_QUIT
+				return
+			}
+			if int32(ret) == -1 { // the return type is a BOOL, in other words, an int32, according to Microsoft
+				raylibTraceLog(rl.LogError, fmt.Sprintf("procGetMessage() failed: %s", windows.GetLastError()))
+				return
+			}
 		}
 	}()
+
+	<-ready
 
 	raylibTraceLog(rl.LogInfo, "Key listening initialized")
 	return keyEventsCh, nil
@@ -120,7 +132,8 @@ func BeginListeningKeyPresses() (<-chan KeyEvent, error) {
 func EndListeningKeyPresses() {
 	assert.NotEqual(hook, 0, "not listening")
 
-	stopMsgLoopFlag.Store(true)
+	procPostThreadMessage.Call(uintptr(msgLoopThreadID), WMQuit, 0, 0)
+
 	for len(keyEventsCh) > 0 {
 		select {
 		case <-keyEventsCh:
@@ -130,6 +143,7 @@ func EndListeningKeyPresses() {
 
 	ret, _, err := procUnhookWindowsHookEx.Call(hook)
 	assert.NotEqual(ret, 0, err)
+	hook = 0
 
 	raylibTraceLog(rl.LogInfo, "Key listening deinitialized")
 }

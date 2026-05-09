@@ -24,7 +24,7 @@ type KeyEvent struct {
 	IsPressed bool
 }
 
-var keyEventsCh = make(chan KeyEvent, 1)
+var keyEventsCh = make(chan KeyEvent, 16)
 
 type Key uint8
 
