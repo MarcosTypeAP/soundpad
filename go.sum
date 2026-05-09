@@ -1,7 +1,7 @@
 github.com/MarcosTypeAP/go-assert v1.4.0 h1:RLfazBDlryCuUKA36JFOh62KLLr3ZIGuux7pHmGNMyU=
 github.com/MarcosTypeAP/go-assert v1.4.0/go.mod h1:xxcmkJqAG1EZoU5ppwDpm5Ntev62epeB1xJxyy5U1zw=
-github.com/MarcosTypeAP/go-rlgui v1.0.0 h1:Xn3jlX6pN2JpbuNBQ83ahIUu2maW6rpYmeNbNAgucv0=
-github.com/MarcosTypeAP/go-rlgui v1.0.0/go.mod h1:iaccZiiPqQZgEmQkU6nTW7c/aFVgKMkBozm1ZVOia7E=
+github.com/MarcosTypeAP/go-rlgui v1.1.0 h1:ukt1Xc/xztfzhB7UBz9emRDaaGE+Pjnx5MSKk6fa4Wg=
+github.com/MarcosTypeAP/go-rlgui v1.1.0/go.mod h1:iaccZiiPqQZgEmQkU6nTW7c/aFVgKMkBozm1ZVOia7E=
 github.com/MarcosTypeAP/go-rnnoise v1.1.0 h1:5FR9z/DPv4A3IzyTsLeINWk8dgDWh9xggQyYFv2XnLw=
 github.com/MarcosTypeAP/go-rnnoise v1.1.0/go.mod h1:bOtQERNhfI+s9v0gs0Rt3WfFUFPS+CfqDjLtzzgMKCc=
 github.com/ebitengine/purego v0.9.1 h1:a/k2f2HQU3Pi399RPW1MOaZyhKJL9w/xFpKAg4q1s0A=
