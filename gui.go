@@ -156,6 +156,33 @@ func (s *Scene) CloseCtxMenu() {
 }
 
 func (s *Scene) Run(storage *Storage, keyListener *KeyListener, audioPlayer *AudioPlayer) (shouldExitProgram bool) {
+	if s.popupState == PopupNone && rl.IsFileDropped() {
+		s.CloseCtxMenu()
+
+		droppedFiles := rl.LoadDroppedFiles()
+		assert.GreaterEqual(len(droppedFiles), 1)
+
+		if len(droppedFiles) > 1 {
+			s.OpenErrorPopup("You must drop one file at a time.", false)
+
+		} else {
+			selectedFile := droppedFiles[0]
+
+			wave := rl.LoadWave(selectedFile)
+			defer func() { rl.UnloadWave(wave) }()
+			rl.WaveFormat(&wave, SampleRate, 32, 1)
+			if !rl.IsWaveValid(wave) {
+				s.OpenErrorPopup(fmt.Sprintf("Could not load the dropped track %q: invalid audio file (see logs)", selectedFile), false)
+				return
+			}
+			s.addTrackFilePath = selectedFile
+			s.addTrackSamples = LoadMonoWaveSamplesFloat32(wave)
+			s.addTrackImagePath = ""
+			audioPlayer.ClearSounds()
+			s.OpenPopup(PopupAddTrack)
+		}
+	}
+
 	//// Build Layout ////
 	gui.ResetLayout()
 
