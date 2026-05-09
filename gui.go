@@ -1782,19 +1782,26 @@ func (s *Scene) BuildTrackList(storage *Storage, audioPlayer *AudioPlayer, bodyB
 			TextureTint: theme.fg2,
 		}, "assets/icons/arrow-left.png", iconsFS))
 
-		if profileDropdown.HasSelection() {
-			profile := storage.GetCurrentProfile()
-			assert.NotNil(profile)
+		gui.AddPostUpdate(func() {
+			if addBindingBtn.IsLeftButtonPressed() {
+				if profileDropdown.HasSelection() {
+					profile := storage.GetCurrentProfile()
+					assert.NotNil(profile)
 
-			gui.AddPostUpdate(func() {
-				if addBindingBtn.IsLeftButtonPressed() {
 					if err := storage.AddBinding(profile, track.ID); err != nil {
 						s.OpenErrorPopup(fmt.Sprintf("Could not add the binding: %s", err), false)
 						return
 					}
+				} else {
+					if profileDropdown.GetNumberOfOptions() > 0 {
+						s.OpenErrorPopup("Must select a profile first", false)
+					} else {
+						s.OpenErrorPopup("Must create a profile first", false)
+					}
+					return
 				}
-			})
-		}
+			}
+		})
 
 		if track.HasImage() {
 			imageTexture, err := gui.LoadImageTexture(track.imagePath, nil)

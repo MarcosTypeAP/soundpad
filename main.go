@@ -535,6 +535,12 @@ func NewStorage() *Storage {
 				ConfigVersion: ConfigVersion,
 			},
 
+			CurrentProfileID: 0,
+			Profiles: []Profile{{
+				ID:   0,
+				Name: "Default",
+			}},
+
 			WindowSize: gui.Vec2(800, 600),
 
 			TracksGain: linearToExponentialGain(1),
@@ -963,7 +969,7 @@ func (s *Storage) GetProfileNames() []string {
 
 func (s *Storage) AddBinding(profile *Profile, trackID ID) error {
 	if slices.ContainsFunc(profile.Bindings, func(b Binding) bool { return b.TrackID == trackID }) {
-		return nil
+		return fmt.Errorf("the track has already been added")
 	}
 
 	profile.Bindings = append(profile.Bindings, Binding{
