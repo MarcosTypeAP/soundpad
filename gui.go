@@ -381,7 +381,7 @@ func (s *Scene) Run(storage *Storage, keyListener *KeyListener, audioPlayer *Aud
 		s.BuildCtxMenuTrack(storage, audioPlayer)
 	}
 	if s.popupState == PopupRemoveTrackConfirmation {
-		s.BuildPopupRemoveTrackConfirmation(storage )
+		s.BuildPopupRemoveTrackConfirmation(storage)
 	}
 
 	playerBarBox := gui.AddChild(root, gui.NewBox(gui.BoxProps{
@@ -944,7 +944,7 @@ func (s *Scene) BuildPopupAddTrack(storage *Storage, audioPlayer *AudioPlayer) {
 			TrackCornerRadius:  gui.Radius(69),
 			TrackActiveColor:   theme.secondary1,
 			TrackInactiveColor: theme.fg3,
-		}, 0, 1, exponentialToLinearGain(1))
+		}, 0, 1, exponentialToLinearGain(storage.NewTrackGain))
 		gui.AddChild(gainBox, gui.NewText(gui.TextProps{
 			FontConfigProps: gui.FontConfigProps{
 				FgColor: theme.fg2,
@@ -983,7 +983,7 @@ func (s *Scene) BuildPopupAddTrack(storage *Storage, audioPlayer *AudioPlayer) {
 				SizingY: gui.Fixed(100),
 				Padding: gui.Padding(0, 10),
 			},
-			CutSamplesGain:      linearToExponentialGain(1),
+			CutSamplesGain:      storage.NewTrackGain,
 			SamplesColor:        theme.secondary1,
 			CutBarsColor:        theme.fg1,
 			RemovedSegmentColor: rl.ColorAlpha(theme.bg1, 0.5),
@@ -1046,6 +1046,7 @@ func (s *Scene) BuildPopupAddTrack(storage *Storage, audioPlayer *AudioPlayer) {
 					quality := SampleQuality(qualityDropdown.GetSelectedIdx())
 					samples := waveCutter.GetCutSamples(quality)
 					gain := linearToExponentialGain(gainSlider.GetProgress())
+					storage.NewTrackGain = gain
 					if err := storage.AddTrack(name, s.addTrackImagePath, samples, gain); err != nil {
 						s.ClosePopup()
 						s.OpenErrorPopup(fmt.Sprintf("Could not create the track: %s", err), false)

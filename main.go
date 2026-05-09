@@ -483,6 +483,8 @@ type JSONStorage struct {
 	OutputGain float32
 	InputGain  float32
 
+	NewTrackGain float32
+
 	WindowSize rl.Vector2
 
 	IsTracksMuted  bool
@@ -542,9 +544,11 @@ func NewStorage() *Storage {
 
 			WindowSize: gui.Vec2(800, 600),
 
-			TracksGain: linearToExponentialGain(1),
-			OutputGain: linearToExponentialGain(1),
-			InputGain:  linearToExponentialGain(1),
+			TracksGain: 1,
+			OutputGain: 1,
+			InputGain:  1,
+
+			NewTrackGain: 1,
 
 			IsPauseRenderEnabled: true,
 
