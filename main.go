@@ -529,6 +529,8 @@ type JSONStorage struct {
 
 	IsPauseRenderEnabled bool
 
+	IsDefaultDevicesWarningEnabled bool
+
 	SelectedInputName  string
 	SelectedOutputName string
 
@@ -575,6 +577,8 @@ func NewStorage() *Storage {
 			InputGain:  linearToExponentialGain(1),
 
 			IsPauseRenderEnabled: true,
+
+			IsDefaultDevicesWarningEnabled: true,
 		},
 	}
 }
@@ -1293,6 +1297,9 @@ var fontsFS embed.FS
 
 //go:embed assets/icons/*
 var iconsFS embed.FS
+
+//go:embed assets/images/*
+var imagesFS embed.FS
 
 var muteSoundSamples SamplesInt8
 var unmuteSoundSamples SamplesInt8

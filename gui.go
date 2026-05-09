@@ -49,6 +49,7 @@ type Scene struct {
 	isSettingsPopupListeningKeyCombo bool
 
 	havePromptedToCleanGarbageFiles bool
+	haveDisplayedDefaultDevicesWarning bool
 }
 
 func NewScene() *Scene {
@@ -155,11 +156,18 @@ func (s *Scene) Run(storage *Storage, keyListener *KeyListener, audioPlayer *Aud
 	//// Build Layout ////
 	gui.ResetLayout()
 
+	if storage.IsDefaultDevicesWarningEnabled && !s.haveDisplayedDefaultDevicesWarning {
+		s.haveDisplayedDefaultDevicesWarning = true
+		s.OpenPopup(PopupDefaultDevicesWarning)
+	}
+	if s.popupState == PopupDefaultDevicesWarning {
+		s.BuildPopupDefaultDevicesWarning(storage)
+	}
+
 	if len(storage.garbageFiles) > 0 && !s.havePromptedToCleanGarbageFiles {
 		s.havePromptedToCleanGarbageFiles = true
 		s.OpenPopup(PopupPromptToCleanGarbageFiles)
 	}
-
 	if s.popupState == PopupPromptToCleanGarbageFiles {
 		s.BuildPopupPromptToCleanGarbageFiles(storage)
 	}
@@ -449,6 +457,7 @@ const (
 	PopupRemoveProfileConfirmation
 	PopupSettings
 	PopupPromptToCleanGarbageFiles
+	PopupDefaultDevicesWarning
 	PopupLicenses
 )
 
@@ -698,6 +707,56 @@ func NewGainSlider(
 	gui.AddChild(gainBox, *sliderOut)
 
 	return outBox
+}
+
+func (s *Scene) BuildPopupDefaultDevicesWarning(storage *Storage) {
+	NewPopup(s.popupSubWindow, "Warning", func(body, buttons *gui.Box) {
+		gui.AddChild(body, gui.NewText(gui.TextProps{
+			BoxProps: gui.BoxProps{
+				SizingX:     gui.Grow(),
+				ChildAlignX: gui.Center,
+			},
+			FontConfigProps: gui.FontConfigProps{
+				FontSize: 22,
+			},
+			Wrapping: gui.Wrap,
+		}, `Please check if you have set virtual devices (containing "Soundpad" or "CABLE" in the name) as the default option, if so, set another devices as the default or manually choose which device to use in the soundpad settings.`))
+
+		imagesBox := gui.AddChild(body, gui.NewBox(gui.BoxProps{
+			SizingX:     gui.Grow(400),
+			ChildAlignX: gui.Center,
+			ChildGap:    theme.childGap,
+		}))
+		gui.AddChild(imagesBox, gui.NewBoxImage(gui.BoxProps{
+			SizingX: gui.Fixed(300),
+			SizingY: gui.AspectRatio(1.17),
+		}, "assets/images/default-input.png", imagesFS))
+		gui.AddChild(imagesBox, gui.NewBoxImage(gui.BoxProps{
+			SizingX: gui.Fixed(300),
+			SizingY: gui.AspectRatio(1.17),
+		}, "assets/images/default-output.png", imagesFS))
+
+		gui.AddChild(buttons, gui.NewSpacerX())
+
+		dontShowAgainBtn := gui.AddChild(buttons, NewSecondaryButton("cross.png", "Don't Show Again"))
+		closeBtn := gui.AddChild(buttons, NewPrimaryButton("cross.png", "Close", theme.primary1))
+
+		gui.AddPostUpdate(func() {
+			if dontShowAgainBtn.IsLeftButtonPressed() {
+				storage.IsDefaultDevicesWarningEnabled = false
+				if err := storage.Save(); err != nil {
+					s.OpenErrorPopup(fmt.Sprintf("Could not save preferences to the config file: %s", err), false)
+				}
+				s.ClosePopup()
+				return
+			}
+
+			if closeBtn.IsLeftButtonPressed() {
+				s.ClosePopup()
+				return
+			}
+		})
+	})
 }
 
 func (s *Scene) BuildPopupPromptToCleanGarbageFiles(storage *Storage) {
