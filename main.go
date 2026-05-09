@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -1309,6 +1308,9 @@ func raylibTraceLog(level rl.TraceLogLevel, msg string) {
 func logAndOpenLoadingErrorWindow(err error) {
 	raylibTraceLog(rl.LogError, err.Error())
 
+	urlRegex := regexp.MustCompile(`https?://[^ "']+`)
+	errorURL := urlRegex.FindString(err.Error())
+
 	gui.InitWindow(gui.Vec2(500, 200), "Error")
 	defer gui.CloseWindow()
 
@@ -1346,6 +1348,14 @@ func logAndOpenLoadingErrorWindow(err error) {
 			ChildGap:    theme.popupChildGap,
 		}))
 		copyBtn := gui.AddChild(buttonsBox, NewPrimaryButton("copy.png", "Copy error", theme.primary1))
+		if errorURL != "" {
+			copyURLBtn := gui.AddChild(buttonsBox, NewPrimaryButton("copy.png", "Copy link", theme.primary1))
+			gui.AddPostUpdate(func() {
+				if copyURLBtn.IsLeftButtonPressed() {
+					rl.SetClipboardText(errorURL)
+				}
+			})
+		}
 		closeBtn := gui.AddChild(buttonsBox, NewPrimaryButton("cross.png", "Close", theme.error1))
 
 		gui.ComputeLayout()
