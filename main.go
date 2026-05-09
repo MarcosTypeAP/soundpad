@@ -898,6 +898,18 @@ func (s *Storage) AddProfile(name string) error {
 	return nil
 }
 
+func (s *Storage) EditProfile(id ID, newName string) error {
+	profile := s.GetProfileByID(id)
+	assert.NotNil(profile)
+
+	profile.Name = newName
+
+	if err := s.Save(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Storage) RemoveProfile(id ID) error {
 	s.Profiles = slices.DeleteFunc(s.Profiles, func(p Profile) bool { return p.ID == id })
 

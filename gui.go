@@ -34,6 +34,8 @@ type Scene struct {
 	errorPopupErrMsg    string
 	errorPopupIsFatal   bool
 
+	profileToEdit *Profile
+
 	trackIDToDelete ID
 
 	addTrackImagePath string
@@ -48,8 +50,8 @@ type Scene struct {
 
 	isSettingsPopupListeningKeyCombo bool
 
-	havePromptedToCleanGarbageFiles bool
 	haveDisplayedDefaultDevicesWarning bool
+	havePromptedToCleanGarbageFiles    bool
 }
 
 func NewScene() *Scene {
@@ -282,14 +284,37 @@ func (s *Scene) Run(storage *Storage, keyListener *KeyListener, audioPlayer *Aud
 			TextureTint: theme.bg1,
 		}, "assets/icons/trash.png", iconsFS))
 
+		renameProfileBtn := gui.AddChild(headerBoxCenter, gui.NewButton(gui.ButtonProps{
+			BoxProps: gui.BoxProps{
+				SizingY:     gui.Grow(),
+				ChildAlignY: gui.Center,
+				Padding:     gui.Padding(10, 10, 10, 12),
+				BgColor:     theme.primary1,
+			},
+			OnHover: gui.EffectBrighten,
+		}))
+		gui.AddChild(renameProfileBtn, gui.NewBoxImage(gui.BoxProps{
+			SizingX:     gui.Fixed(24),
+			SizingY:     gui.Fixed(24),
+			TextureTint: theme.bg1,
+		}, "assets/icons/rename.png", iconsFS))
+
 		gui.AddPostUpdate(func() {
 			if deleteProfileBtn.IsLeftButtonPressed() {
 				s.OpenPopup(PopupRemoveProfileConfirmation)
 			}
+
+			if renameProfileBtn.IsLeftButtonPressed() {
+				profile := storage.GetCurrentProfile()
+				assert.NotNil(profile)
+
+				s.profileToEdit = profile
+				s.OpenPopup(PopupEditProfile)
+			}
 		})
 
 		if s.popupState == PopupRemoveProfileConfirmation {
-			s.BuildPopupRemoveProfileConfirmation(storage,  profileDropdown)
+			s.BuildPopupRemoveProfileConfirmation(storage, profileDropdown)
 		}
 	}
 
@@ -298,7 +323,7 @@ func (s *Scene) Run(storage *Storage, keyListener *KeyListener, audioPlayer *Aud
 			SizingY:      gui.Grow(),
 			ChildAlignY:  gui.Center,
 			Padding:      gui.Padding(12),
-			CornerRadius: gui.RadiusOverride(theme.radius, 0, -1, -1, 0),
+			CornerRadius: gui.Ternary(profileDropdown.HasSelection(), gui.RadiusOverride(theme.radius, 0, -1, -1, 0), theme.radius),
 			BgColor:      theme.primary1,
 		},
 		OnHover: gui.EffectBrighten,
@@ -316,7 +341,12 @@ func (s *Scene) Run(storage *Storage, keyListener *KeyListener, audioPlayer *Aud
 	})
 
 	if s.popupState == PopupAddProfile {
-		s.BuildPopupAddProfile(storage, profileDropdown)
+		s.profileToEdit = nil
+		s.BuildPopupAddOrEditProfile(storage, profileDropdown)
+	}
+	if s.popupState == PopupEditProfile {
+		assert.NotNil(s.profileToEdit)
+		s.BuildPopupAddOrEditProfile(storage, profileDropdown)
 	}
 
 	settingsBtn := gui.AddChild(headerBoxRight, NewPrimaryButton("settings.png", "", theme.primary1))
@@ -453,6 +483,7 @@ const (
 	PopupNone PopupState = iota
 	PopupAddTrack
 	PopupAddProfile
+	PopupEditProfile
 	PopupRemoveTrackConfirmation
 	PopupRemoveProfileConfirmation
 	PopupSettings
@@ -1058,8 +1089,13 @@ func (s *Scene) BuildPopupRemoveProfileConfirmation(storage *Storage, profileDro
 	})
 }
 
-func (s *Scene) BuildPopupAddProfile(storage *Storage, profileDropdown *gui.Dropdown) {
-	NewPopup(s.popupSubWindow, "Add Profile", func(body, buttons *gui.Box) {
+func (s *Scene) BuildPopupAddOrEditProfile(storage *Storage, profileDropdown *gui.Dropdown) {
+	defaultInputValue := ""
+	if s.profileToEdit != nil {
+		defaultInputValue = s.profileToEdit.Name
+	}
+
+	NewPopup(s.popupSubWindow, gui.Ternary(s.profileToEdit != nil, "Edit Profile", "Add Profile"), func(body, buttons *gui.Box) {
 		profileNameInput := gui.AddChild(body, gui.NewTextInput(gui.TextInputProps{
 			BoxProps: gui.BoxProps{
 				ID:           s.popupSubWindow.GetAutoID(),
@@ -1069,7 +1105,7 @@ func (s *Scene) BuildPopupAddProfile(storage *Storage, profileDropdown *gui.Drop
 				CornerRadius: theme.radius,
 			},
 			PlaceholderColor: theme.fg3,
-		}, "Name", ""))
+		}, "Name", defaultInputValue))
 		gui.AddChild(body, gui.NewSpacerY(gui.Fixed(0)))
 
 		saveBtn := gui.AddChild(buttons, NewPrimaryButton("save.png", "Save", theme.primary1, gui.Grow()))
@@ -1082,18 +1118,25 @@ func (s *Scene) BuildPopupAddProfile(storage *Storage, profileDropdown *gui.Drop
 					profileNameInput.ErrorMessage = errMsg
 					return
 				}
-				if err := storage.AddProfile(name); err != nil {
-					s.OpenErrorPopup(fmt.Sprintf("Could not create the profile: %s", err), false)
-					return
+				if s.profileToEdit != nil {
+					if err := storage.EditProfile(s.profileToEdit.ID, name); err != nil {
+						s.OpenErrorPopup(fmt.Sprintf("Could not create the profile: %s", err), false)
+						return
+					}
+				} else {
+					if err := storage.AddProfile(name); err != nil {
+						s.OpenErrorPopup(fmt.Sprintf("Could not create the profile: %s", err), false)
+						return
+					}
 				}
-				profileNameInput.SetValue("")
 				gui.RemoveNodeFromCache(profileDropdown.ID())
 				s.ClosePopup()
+				s.profileToEdit = nil
 			}
 
 			if cancelBtn.IsLeftButtonPressed() {
-				profileNameInput.SetValue("")
 				s.ClosePopup()
+				s.profileToEdit = nil
 			}
 		})
 	})
