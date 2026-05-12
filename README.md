@@ -1,11 +1,17 @@
-# Soundpad
-
-<p align="center">
-    <img src="images/base.png" alt="Base screen" width="350px">
-    <img src="images/add-track.png" alt="Adding a track" width="350px">
-</p>
+<h1 align="center">
+    <img src="assets/icons/soundpad.png" alt="Logo" height=80>
+    <br/>
+    Soundpad
+</h1>
 
 A soundboard (made with [go-rlgui](https://github.com/MarcosTypeAP/go-rlgui) ツ) that mixes played tracks and your real microphone into a virtual microphone, so people in voice calls hear both your voice and your sounds together. You can also enable a monitor output to hear the played tracks locally.
+
+<div align="center">
+    <img src="images/base.png" alt="Base screen" width="49%">
+    <img src="images/add-track.png" alt="Adding a track" width="49%">
+</div>
+
+<br/>
 
 > Pre-built binaries are available on the [Releases](https://github.com/MarcosTypeAP/soundpad/releases) page.
 
