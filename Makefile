@@ -1,14 +1,14 @@
-LINUX_CC = gcc
-LINUX_CGO_CFLAGS = -I./third_party/linux/include
-LINUX_CGO_LDFLAGS = -L./third_party/linux/lib -Wl,-Bstatic -lportaudio -Wl,-Bdynamic -lpulse
-LINUX_PKG_CONFIG_PATH = ${CURDIR}/third_party/linux/lib/pkgconfig
+LINUX_CC := gcc
+LINUX_CGO_CFLAGS := -I./third_party/linux/include
+LINUX_CGO_LDFLAGS := -L./third_party/linux/lib -Wl,-Bstatic -lportaudio -Wl,-Bdynamic -lpulse
+LINUX_PKG_CONFIG_PATH := ${CURDIR}/third_party/linux/lib/pkgconfig
 
-WINDOWS_CC = x86_64-w64-mingw32-gcc
-WINDOWS_CGO_CFLAGS = -I./third_party/windows/include
-WINDOWS_CGO_LDFLAGS = -L./third_party/windows/lib -Wl,-Bstatic -lportaudio -Wl,-Bdynamic
-WINDOWS_PKG_CONFIG_PATH = ${CURDIR}/third_party/windows/lib/pkgconfig
+WINDOWS_CC := x86_64-w64-mingw32-gcc
+WINDOWS_CGO_CFLAGS := -I./third_party/windows/include
+WINDOWS_CGO_LDFLAGS := -L./third_party/windows/lib -Wl,-Bstatic -lportaudio -Wl,-Bdynamic
+WINDOWS_PKG_CONFIG_PATH := ${CURDIR}/third_party/windows/lib/pkgconfig
 
-FLAGS_LINUX_DEV = \
+FLAGS_LINUX_DEV := \
 	CGO_ENABLED=1 \
 	CC="${LINUX_CC}" \
 	CGO_CFLAGS="${LINUX_CGO_CFLAGS}" \
@@ -17,7 +17,7 @@ FLAGS_LINUX_DEV = \
 	GOOS=linux \
 	GOARCH=amd64
 
-FLAGS_LINUX_RELEASE = \
+FLAGS_LINUX_RELEASE := \
 	CGO_ENABLED=1 \
 	CC="${LINUX_CC}" \
 	CGO_CFLAGS="-O3 ${LINUX_CGO_CFLAGS}" \
@@ -26,7 +26,7 @@ FLAGS_LINUX_RELEASE = \
 	GOOS=linux \
 	GOARCH=amd64
 
-FLAGS_WINDOWS_DEV = \
+FLAGS_WINDOWS_DEV := \
 	CGO_ENABLED=1 \
 	CC=${WINDOWS_CC} \
 	CGO_CFLAGS="${WINDOWS_CGO_CFLAGS}" \
@@ -35,7 +35,7 @@ FLAGS_WINDOWS_DEV = \
 	GOOS=windows \
 	GOARCH=amd64
 
-FLAGS_WINDOWS_RELEASE = \
+FLAGS_WINDOWS_RELEASE := \
 	CGO_ENABLED=1 \
 	CC=${WINDOWS_CC} \
 	CGO_CFLAGS="-O3 ${WINDOWS_CGO_CFLAGS}" \
@@ -44,11 +44,11 @@ FLAGS_WINDOWS_RELEASE = \
 	GOOS=windows \
 	GOARCH=amd64
 
-GO_FLAGS_LINUX_RELEASE = -trimpath -ldflags="-s -w"
-GO_FLAGS_WINDOWS_RELEASE = -trimpath -ldflags="-s -w -H=windowsgui"
+GO_FLAGS_LINUX_RELEASE := -trimpath -ldflags="-s -w"
+GO_FLAGS_WINDOWS_RELEASE := -trimpath -ldflags="-s -w -H=windowsgui"
 
-RNNOISE_COMMIT_HASH=70f1d256acd4b34a572f999a05c87bf00b67730d
-PORTAUDIO_COMMIT_HASH=d5b81b82f13ae8498f02e27595aa9c50ab2623db
+RNNOISE_COMMIT_HASH := 70f1d256acd4b34a572f999a05c87bf00b67730d
+PORTAUDIO_COMMIT_HASH := d5b81b82f13ae8498f02e27595aa9c50ab2623db
 
 .PHONY: linux-edit
 linux-edit:
@@ -118,15 +118,49 @@ windows-release-dev: third_party/windows
 	$(FLAGS_WINDOWS_RELEASE) \
 	go build $(GO_FLAGS_WINDOWS_RELEASE) -o build/Soundpad.exe
 
-third_party/linux:
-	mkdir -p third_party/linux
-	mkdir -p deps_build
-	rm -fr deps_build/*
+deps_build/rnnoise:
+	rm -fr deps_build/rnnoise
+	mkdir -p deps_build/rnnoise
 
-	git clone https://github.com/xiph/rnnoise.git deps_build/rnnoise && \
 	cd deps_build/rnnoise && \
-	git reset --hard ${RNNOISE_COMMIT_HASH} && \
-	./autogen.sh && \
+	git init && \
+	git remote add origin https://github.com/xiph/rnnoise.git && \
+	git fetch --depth=1 origin ${RNNOISE_COMMIT_HASH} && \
+	git switch -d FETCH_HEAD && \
+	./autogen.sh
+
+deps_build/portaudio:
+	rm -fr deps_build/portaudio
+	mkdir -p deps_build/portaudio
+
+	cd deps_build/portaudio && \
+	git init && \
+	git remote add origin https://github.com/PortAudio/portaudio.git && \
+	git fetch --depth=1 origin ${PORTAUDIO_COMMIT_HASH} && \
+	git switch -d FETCH_HEAD
+	
+THIRD_PARTY_LINUX_RNNOISE_FILES := \
+	third_party/linux/include/rnnoise.h \
+	third_party/linux/lib/librnnoise.a \
+	third_party/linux/lib/librnnoise.la \
+	third_party/linux/lib/pkgconfig/rnnoise.pc
+
+THIRD_PARTY_LINUX_PORTAUDIO_FILES := \
+	third_party/linux/include/pa_linux_pulseaudio.h \
+	third_party/linux/include/portaudio.h \
+	third_party/linux/lib/libportaudio.a \
+	third_party/linux/lib/libportaudio.la \
+	third_party/linux/lib/pkgconfig/portaudio-2.0.pc
+
+third_party/linux: \
+	$(THIRD_PARTY_LINUX_RNNOISE_FILES) \
+	$(THIRD_PARTY_LINUX_PORTAUDIO_FILES)
+
+$(THIRD_PARTY_LINUX_RNNOISE_FILES): deps_build/rnnoise
+	mkdir -p third_party/linux
+
+	cd deps_build/rnnoise && \
+	make distclean; \
 	./configure \
 		--disable-shared --enable-static \
 		--disable-doc --disable-examples \
@@ -134,9 +168,13 @@ third_party/linux:
 		--prefix=${CURDIR}/third_party/linux && \
 	make install
 
-	git clone https://github.com/PortAudio/portaudio.git deps_build/portaudio && \
+	go clean -cache
+
+$(THIRD_PARTY_LINUX_PORTAUDIO_FILES): deps_build/portaudio
+	mkdir -p third_party/linux
+
 	cd deps_build/portaudio && \
-	git reset --hard ${PORTAUDIO_COMMIT_HASH} && \
+	make distclean; \
 	./configure \
 		--disable-shared --enable-static \
 		--without-audioio --without-sndio --without-jack --without-oss --without-asihpi --without-winapi --without-alsa \
@@ -144,8 +182,26 @@ third_party/linux:
 		--prefix=${CURDIR}/third_party/linux && \
 	make install
 
-	rm -fr deps_build
 	go clean -cache
+
+THIRD_PARTY_WINDOWS_RNNOISE_FILES := \
+	third_party/windows/include/rnnoise.h \
+	third_party/windows/lib/librnnoise.a \
+	third_party/windows/lib/librnnoise.la \
+	third_party/windows/lib/pkgconfig/rnnoise.pc
+
+THIRD_PARTY_WINDOWS_PORTAUDIO_FILES := \
+	third_party/windows/include/pa_win_waveformat.h \
+	third_party/windows/include/pa_win_wmme.h \
+	third_party/windows/include/portaudio.h \
+	third_party/windows/lib/libportaudio.a \
+	third_party/windows/lib/libportaudio.la \
+	third_party/windows/lib/pkgconfig/portaudio-2.0.pc
+
+third_party/windows: \
+	rsrc_windows_amd64.syso \
+	$(THIRD_PARTY_WINDOWS_RNNOISE_FILES) \
+	$(THIRD_PARTY_WINDOWS_PORTAUDIO_FILES)
 
 tools/rsrc:
 	GOBIN=${CURDIR}/tools go install github.com/akavel/rsrc@latest
@@ -154,15 +210,11 @@ rsrc_windows_amd64.syso: tools/rsrc
 	# convert assets/icons/soundpad.png -colors 256 assets/soundpad.ico
 	tools/rsrc -ico assets/soundpad.ico -arch amd64 -o rsrc_windows_amd64.syso
 
-third_party/windows: rsrc_windows_amd64.syso
+$(THIRD_PARTY_WINDOWS_RNNOISE_FILES):
 	mkdir -p third_party/windows
-	mkdir -p deps_build
-	rm -fr deps_build/*
 
-	git clone https://github.com/xiph/rnnoise.git deps_build/rnnoise && \
 	cd deps_build/rnnoise && \
-	git reset --hard ${RNNOISE_COMMIT_HASH} && \
-	./autogen.sh && \
+	make distclean; \
 	./configure \
         --disable-shared --enable-static \
         --disable-doc --disable-examples \
@@ -171,9 +223,13 @@ third_party/windows: rsrc_windows_amd64.syso
         --prefix=${CURDIR}/third_party/windows && \
 	make install
 
-	git clone https://github.com/PortAudio/portaudio.git deps_build/portaudio && \
+	go clean -cache
+
+$(THIRD_PARTY_WINDOWS_PORTAUDIO_FILES):
+	mkdir -p third_party/windows
+
 	cd deps_build/portaudio && \
-	git reset --hard ${PORTAUDIO_COMMIT_HASH} && \
+	make distclean; \
 	./configure \
 		--disable-shared --enable-static \
         --without-audioio --without-sndio --without-jack --without-oss --without-asihpi --without-alsa --without-pulseaudio \
@@ -182,5 +238,4 @@ third_party/windows: rsrc_windows_amd64.syso
 		--prefix=${CURDIR}/third_party/windows && \
 	make install
 
-	rm -fr deps_build
 	go clean -cache
