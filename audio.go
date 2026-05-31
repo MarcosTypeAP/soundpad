@@ -15,6 +15,7 @@ import (
 
 	"github.com/MarcosTypeAP/go-assert"
 	"github.com/MarcosTypeAP/go-rnnoise"
+	"github.com/MarcosTypeAP/soundpad/internal/ffmpeg"
 	rl "github.com/gen2brain/raylib-go/raylib"
 	"github.com/gordonklaus/portaudio"
 )
@@ -80,7 +81,6 @@ func _exponentialToLinearGain(x float32) float32 {
 	return linear
 }
 
-
 func NewWave(sampleCount, sampleRate, sampleSize, channels int, data unsafe.Pointer) rl.Wave {
 	return rl.Wave{
 		FrameCount: uint32(sampleCount),
@@ -115,10 +115,60 @@ func NewWaveFromMonoSamples(samples Samples) rl.Wave {
 	return rl.Wave{}
 }
 
-func LoadSamplesFromTrackFile(trackPath string) (Samples, error) {
-	if filepath.Ext(trackPath) != FileExtensionWAV {
-		return nil, fmt.Errorf("file has wrong extension, must be "+FileExtensionWAV+": %s", trackPath)
+func LoadSamplesFromTrackFile(trackPath string, quality SampleQuality) (Samples, error) {
+	if filepath.Ext(trackPath) == FileExtensionWAV {
+		return LoadSamplesFromTrackFileWAV(trackPath)
 	}
+
+	assert.Equal(filepath.Ext(trackPath), FileExtensionMP3)
+
+	switch quality {
+	case SampleQualityInt8:
+		samples, err := ffmpeg.LoadMP3SamplesInt8(trackPath, SampleRate, 1)
+		return SamplesInt8(samples), err
+
+	case SampleQualityInt16:
+		samples, err := ffmpeg.LoadMP3SamplesInt16(trackPath, SampleRate, 1)
+		return SamplesInt16(samples), err
+
+	case SampleQualityFloat32:
+		samples, err := ffmpeg.LoadMP3SamplesFloat32(trackPath, SampleRate, 1)
+		return SamplesFloat32(samples), err
+	}
+
+	assert.Unreachable()
+	return nil, nil
+}
+
+// https://en.wikipedia.org/wiki/WAV
+type WavFormatHeader struct {
+	// [Master RIFF chunk]
+	FileChunkID  [4]byte // "RIFF"
+	FileSize     uint32  // minus 8 bytes
+	FileFormatID [4]byte // "WAVE"
+
+	// [Chunk describing the data format]
+	FormatChunkID [4]byte // "fmt "
+	FormatSize    uint32  // minus 8 bytes (16 bytes)
+	AudioFormat   uint16  // 1 = PCM integer, 3 = IEEE 754 float
+	Channels      uint16
+	SampleRate    uint32
+	ByteRate      uint32
+	FrameSize     uint16
+	BitsPerSample uint16
+
+	// [Chunk containing the sampled data]
+	DataChunkID [4]byte // "data"
+	DataSize    uint32
+}
+
+type WavFormat struct {
+	WavFormatHeader
+	Data []byte
+}
+
+func ParseWAVFile(trackPath string, includeData bool) (*WavFormat, error) {
+	assert.Equal(filepath.Ext(trackPath), FileExtensionWAV)
 
 	file, err := os.Open(trackPath)
 	if err != nil {
@@ -126,104 +176,95 @@ func LoadSamplesFromTrackFile(trackPath string) (Samples, error) {
 	}
 	defer file.Close()
 
-	const AudioFormatPCMInteger = 1
-	const AudioFormatIEEE754Float = 3
-
-	// https://en.wikipedia.org/wiki/WAV
-	type WavFormat struct {
-		// [Master RIFF chunk]
-		FileChunkID  [4]byte // "RIFF"
-		FileSize     uint32  // minus 8 bytes
-		FileFormatID [4]byte // "WAVE"
-
-		// [Chunk describing the data format]
-		FormatChunkID [4]byte // "fmt "
-		FormatSize    uint32  // minus 8 bytes (16 bytes)
-		AudioFormat   uint16  // 1 = PCM integer, 3 = IEEE 754 float
-		Channels      uint16
-		SampleRate    uint32
-		ByteRate      uint32
-		FrameSize     uint16
-		BitsPerSample uint16
-
-		// [Chunk containing the sampled data]
-		DataChunkID [4]byte // "data"
-		DataSize    uint32
-		// Data        []byte
-	}
-
-	wavData := WavFormat{}
-	err = binary.Read(file, binary.LittleEndian, &wavData)
+	wav := new(WavFormat)
+	err = binary.Read(file, binary.LittleEndian, &wav.WavFormatHeader)
 	if err != nil {
 		return nil, fmt.Errorf("parsing file: %w", err)
 	}
 
 	errMalformed := fmt.Errorf("malformed track")
 
-	if wavData.FileChunkID != [4]byte([]byte("RIFF")) {
+	const AudioFormatPCMInteger = 1
+	const AudioFormatIEEE754Float = 3
+
+	if wav.FileChunkID != [4]byte([]byte("RIFF")) {
 		return nil, errMalformed
 	}
-	if wavData.FileFormatID != [4]byte([]byte("WAVE")) {
+	if wav.FileFormatID != [4]byte([]byte("WAVE")) {
 		return nil, errMalformed
 	}
-	if wavData.FormatChunkID != [4]byte([]byte("fmt ")) {
+	if wav.FormatChunkID != [4]byte([]byte("fmt ")) {
 		return nil, errMalformed
 	}
-	if wavData.AudioFormat != AudioFormatPCMInteger && wavData.AudioFormat != AudioFormatIEEE754Float {
+	if wav.AudioFormat != AudioFormatPCMInteger && wav.AudioFormat != AudioFormatIEEE754Float {
 		return nil, fmt.Errorf("only 'PCM integer' and 'IEEE 754 float' are supported")
 	}
-	if wavData.Channels != 1 {
+	if wav.Channels != 1 {
 		return nil, fmt.Errorf("only mono tracks are supported")
 	}
-	if wavData.SampleRate != SampleRate {
+	if wav.SampleRate != SampleRate {
 		return nil, fmt.Errorf("only %dHz tracks are supported", SampleRate)
 	}
-	if wavData.FrameSize != wavData.BitsPerSample/8 { // 1 channel frames
-		return nil, fmt.Errorf("%w: frame size (%d) != sample size (%d)", errMalformed, wavData.FrameSize, wavData.BitsPerSample/8)
+	if wav.FrameSize != wav.BitsPerSample/8 { // 1 channel frames
+		return nil, fmt.Errorf("%w: frame size (%d) != sample size (%d)", errMalformed, wav.FrameSize, wav.BitsPerSample/8)
 	}
-	if wavData.BitsPerSample != 8 && wavData.BitsPerSample != 16 && wavData.BitsPerSample != 32 {
+	if wav.BitsPerSample != 8 && wav.BitsPerSample != 16 && wav.BitsPerSample != 32 {
 		return nil, fmt.Errorf("only uint8, int16 or float32 samples are supported")
 	}
-	if wavData.DataChunkID != [4]byte([]byte("data")) {
+	switch wav.BitsPerSample {
+	case 8, 16:
+		if wav.AudioFormat != AudioFormatPCMInteger {
+			return nil, errMalformed
+		}
+	case 32:
+		if wav.AudioFormat != AudioFormatIEEE754Float {
+			return nil, errMalformed
+		}
+	default:
+		return nil, fmt.Errorf("only uint8, int16 or float32 samples are supported")
+	}
+	if wav.DataChunkID != [4]byte([]byte("data")) {
 		return nil, errMalformed
 	}
-	if wavData.DataSize%uint32(wavData.BitsPerSample/8) != 0 {
+	if wav.DataSize%uint32(wav.BitsPerSample/8) != 0 {
 		return nil, errMalformed
+	}
+
+	if includeData {
+		data, err := io.ReadAll(file)
+		if err != nil {
+			return nil, fmt.Errorf("reading file's data chunk: %w", err)
+		}
+		if wav.DataSize > uint32(len(data)) {
+			return nil, fmt.Errorf("%w: data size (%d) > data read (%d)", errMalformed, wav.DataSize, len(data))
+		}
+		wav.Data = data[:wav.DataSize]
+	}
+
+	return wav, nil
+}
+
+func LoadSamplesFromTrackFileWAV(trackPath string) (Samples, error) {
+	wav, err := ParseWAVFile(trackPath, true)
+	if err != nil {
+		return nil, fmt.Errorf("parsing wav file: %w", err)
 	}
 
 	var outSamples Samples
 
-	data, err := io.ReadAll(file)
-	if err != nil {
-		return nil, fmt.Errorf("reading file's data chunk: %w", err)
-	}
-	if wavData.DataSize > uint32(len(data)) {
-		return nil, fmt.Errorf("%w: data size (%d) > data read (%d)", errMalformed, wavData.DataSize, len(data))
-	}
-	data = data[:wavData.DataSize]
-
-	switch wavData.BitsPerSample {
+	switch wav.BitsPerSample {
 	case 8:
-		if wavData.AudioFormat != AudioFormatPCMInteger {
-			return nil, errMalformed
-		}
-		out := SamplesInt8(unsafe.Slice((*int8)(unsafe.Pointer(&data[0])), len(data)))
-		for i := range data {
-			out[i] = int8(data[i] - 128)
+		out := SamplesInt8(unsafe.Slice((*int8)(unsafe.Pointer(&wav.Data[0])), len(wav.Data)))
+		for i := range wav.Data {
+			out[i] = int8(wav.Data[i] - 128)
 		}
 		outSamples = out
 
 	case 16:
-		if wavData.AudioFormat != AudioFormatPCMInteger {
-			return nil, errMalformed
-		}
-		outSamples = SamplesInt16(unsafe.Slice((*int16)(unsafe.Pointer(&data[0])), len(data)/2))
+		outSamples = SamplesInt16(unsafe.Slice((*int16)(unsafe.Pointer(&wav.Data[0])), len(wav.Data)/2))
 
 	case 32:
-		if wavData.AudioFormat != AudioFormatIEEE754Float {
-			return nil, errMalformed
-		}
-		outSamples = SamplesFloat32(unsafe.Slice((*float32)(unsafe.Pointer(&data[0])), len(data)/4))
+		outSamples = SamplesFloat32(unsafe.Slice((*float32)(unsafe.Pointer(&wav.Data[0])), len(wav.Data)/4))
 
 	default:
 		assert.Unreachable()

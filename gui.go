@@ -10,6 +10,7 @@ import (
 	"github.com/MarcosTypeAP/go-assert"
 	"github.com/MarcosTypeAP/go-rlgui"
 	"github.com/MarcosTypeAP/soundpad/internal/crossplatform"
+	"github.com/MarcosTypeAP/soundpad/internal/ffmpeg"
 	"github.com/gordonklaus/portaudio"
 
 	rl "github.com/gen2brain/raylib-go/raylib"
@@ -53,6 +54,8 @@ type Scene struct {
 
 	haveDisplayedDefaultDevicesWarning bool
 	havePromptedToCleanGarbageFiles    bool
+
+	remainingTracksToConvert int
 }
 
 func NewScene() *Scene {
@@ -168,23 +171,64 @@ func (s *Scene) Run(storage *Storage, keyListener *KeyListener, audioPlayer *Aud
 		} else {
 			selectedFile := droppedFiles[0]
 
-			wave := rl.LoadWave(selectedFile)
-			defer func() { rl.UnloadWave(wave) }()
-			rl.WaveFormat(&wave, SampleRate, 32, 1)
-			if !rl.IsWaveValid(wave) {
-				s.OpenErrorPopup(fmt.Sprintf("Could not load the dropped track %q: invalid audio file (see logs)", selectedFile), false)
+			samples, err := ffmpeg.LoadMP3SamplesFloat32(selectedFile, SampleRate, 1)
+			if err != nil {
+				s.OpenErrorPopup(fmt.Sprintf("Could not load the dropped track %q: %s", selectedFile, err), false)
 				return
 			}
+
 			s.addTrackFilePath = selectedFile
-			s.addTrackSamples = LoadMonoWaveSamplesFloat32(wave)
+			s.addTrackSamples = samples
 			s.addTrackImagePath = ""
 			audioPlayer.ClearSounds()
 			s.OpenPopup(PopupAddTrack)
 		}
 	}
 
+	if s.popupState == PopupConvertTracks && s.remainingTracksToConvert > 0 {
+		item := storage.tracksToConvert[s.remainingTracksToConvert-1]
+		s.remainingTracksToConvert--
+
+		track := storage.GetTrackByID(item.trackID)
+		assert.NotNil(track)
+
+		newPath := filepath.Join(StorageTracksDirPath, fmt.Sprint(item.trackID)+FileExtensionMP3)
+
+		if err := ffmpeg.ConvertToMP3(track.trackPath, newPath); err != nil {
+			s.OpenErrorPopup(fmt.Sprintf("Could not convert old WAV tracks to MP3: %q -> %q: %s", filepath.Base(track.trackPath), filepath.Base(newPath), err), false)
+			goto FinishConvertingTrack
+		}
+		if err := os.RemoveAll(track.trackPath); err != nil {
+			s.OpenErrorPopup(fmt.Sprintf("Could not remove old WAV track: %q: %s", filepath.Base(track.trackPath), err), false)
+			goto FinishConvertingTrack
+		}
+
+		track.trackPath = newPath
+		track.Quality = item.quality
+
+		if err := storage.Save(); err != nil {
+			s.OpenErrorPopup(fmt.Sprintf("Could not save track convertion (ID=%d): %s", track.ID, err), true)
+			goto FinishConvertingTrack
+		}
+
+		if s.remainingTracksToConvert == 0 {
+			storage.tracksToConvert = nil
+			s.ClosePopup()
+		}
+
+	FinishConvertingTrack:
+	}
+
 	//// Build Layout ////
 	gui.ResetLayout()
+
+	if s.remainingTracksToConvert == 0 && len(storage.tracksToConvert) > 0 {
+		s.remainingTracksToConvert = len(storage.tracksToConvert)
+		s.OpenPopup(PopupConvertTracks)
+	}
+	if s.popupState == PopupConvertTracks {
+		s.BuildPopupConvertTracks(storage)
+	}
 
 	if storage.IsDefaultDevicesWarningEnabled && !s.haveDisplayedDefaultDevicesWarning {
 		s.haveDisplayedDefaultDevicesWarning = true
@@ -246,15 +290,14 @@ func (s *Scene) Run(storage *Storage, keyListener *KeyListener, audioPlayer *Aud
 				return
 			}
 			if ok {
-				wave := rl.LoadWave(selectedFile)
-				defer func() { rl.UnloadWave(wave) }()
-				rl.WaveFormat(&wave, SampleRate, 32, 1)
-				if !rl.IsWaveValid(wave) {
-					s.OpenErrorPopup(fmt.Sprintf("Could not load the track %q: invalid audio file (see logs)", selectedFile), false)
+				samples, err := ffmpeg.LoadMP3SamplesFloat32(selectedFile, SampleRate, 1)
+				if err != nil {
+					s.OpenErrorPopup(fmt.Sprintf("Could not load track %q: %s", selectedFile, err), false)
 					return
 				}
+
 				s.addTrackFilePath = selectedFile
-				s.addTrackSamples = LoadMonoWaveSamplesFloat32(wave)
+				s.addTrackSamples = samples
 				s.addTrackImagePath = ""
 				audioPlayer.ClearSounds()
 				s.OpenPopup(PopupAddTrack)
@@ -509,6 +552,7 @@ type PopupState uint8
 
 const (
 	PopupNone PopupState = iota
+	PopupConvertTracks
 	PopupAddTrack
 	PopupAddProfile
 	PopupEditProfile
@@ -766,6 +810,21 @@ func NewGainSlider(
 	gui.AddChild(gainBox, *sliderOut)
 
 	return outBox
+}
+
+func (s *Scene) BuildPopupConvertTracks(storage *Storage) {
+	NewPopup(s.popupSubWindow, "Converting tracks to MP3", func(body, buttons *gui.Box) {
+		gui.AddChild(body, gui.NewText(gui.TextProps{
+			BoxProps: gui.BoxProps{
+				SizingX:     gui.Grow(),
+				ChildAlignX: gui.Center,
+				ChildAlignY: gui.Center,
+			},
+			FontConfigProps: gui.FontConfigProps{
+				FontSize: 22,
+			},
+		}, fmt.Sprintf("Progress: %d/%d", len(storage.tracksToConvert)-s.remainingTracksToConvert, len(storage.tracksToConvert))))
+	})
 }
 
 func (s *Scene) BuildPopupDefaultDevicesWarning(storage *Storage) {
@@ -1074,11 +1133,11 @@ func (s *Scene) BuildPopupAddTrack(storage *Storage, audioPlayer *AudioPlayer) {
 				if errMsg := ValidateTrackName(name); errMsg != "" {
 					nameInput.ErrorMessage = errMsg
 				} else {
+					samples := waveCutter.GetCutSamples(SampleQualityFloat32).(SamplesFloat32)
 					quality := SampleQuality(qualityDropdown.GetSelectedIdx())
-					samples := waveCutter.GetCutSamples(quality)
 					gain := linearToExponentialGain(gainSlider.GetProgress())
 					storage.NewTrackGain = gain
-					if err := storage.AddTrack(name, s.addTrackImagePath, samples, gain); err != nil {
+					if err := storage.AddTrack(name, s.addTrackImagePath, samples, quality, gain); err != nil {
 						s.ClosePopup()
 						s.OpenErrorPopup(fmt.Sprintf("Could not create the track: %s", err), false)
 						return

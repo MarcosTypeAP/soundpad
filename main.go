@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/MarcosTypeAP/soundpad/internal/crossplatform"
+	"github.com/MarcosTypeAP/soundpad/internal/ffmpeg"
 
 	"github.com/MarcosTypeAP/go-assert"
 	gui "github.com/MarcosTypeAP/go-rlgui"
@@ -127,9 +128,10 @@ func ExportImageResize(src, dst string) error {
 }
 
 type Track struct {
-	ID   ID
-	Name string
-	Gain float32
+	ID      ID
+	Name    string
+	Gain    float32
+	Quality SampleQuality
 
 	trackPath string
 	imagePath string
@@ -151,7 +153,7 @@ func (t *Track) HasTrack() bool {
 
 func (t *Track) LoadSamples() error {
 	var err error
-	t.samples, err = LoadSamplesFromTrackFile(t.trackPath)
+	t.samples, err = LoadSamplesFromTrackFile(t.trackPath, t.Quality)
 	if err != nil {
 		return err
 	}
@@ -506,7 +508,11 @@ type JSONStorage struct {
 type Storage struct {
 	JSONStorage
 
-	garbageFiles []string
+	garbageFiles    []string
+	tracksToConvert []struct {
+		trackID ID
+		quality SampleQuality
+	}
 
 	tracksCache map[ID]*Track
 
@@ -542,7 +548,7 @@ func NewStorage() *Storage {
 				Name: "Default",
 			}},
 
-			WindowSize: gui.Vec2(800, 600),
+			WindowSize: gui.Vec2(1100, 700),
 
 			TracksGain: 1,
 			OutputGain: 1,
@@ -782,17 +788,19 @@ func (s *Storage) GetSamplesFromTrackID(trackID ID) (Samples, error) {
 	return track.samples, nil
 }
 
-func (s *Storage) AddTrack(name, imagePath string, samples Samples, gain float32) error {
+func (s *Storage) AddTrack(name, imagePath string, samples SamplesFloat32, quality SampleQuality, gain float32) error {
 	track := Track{
 		ID:      GenerateID(),
 		Name:    name,
 		Gain:    gain,
+		Quality: quality,
 		samples: samples,
 	}
-	track.trackPath = filepath.Join(StorageTracksDirPath, fmt.Sprint(track.ID)+FileExtensionWAV)
+	track.trackPath = filepath.Join(StorageTracksDirPath, fmt.Sprint(track.ID)+FileExtensionMP3)
 
-	wave := NewWaveFromMonoSamples(samples)
-	rl.ExportWave(wave, track.trackPath)
+	if err := ffmpeg.SaveMP3SamplesFloat32(samples, SampleRate, 1, track.trackPath); err != nil {
+		return fmt.Errorf("exporting samples as MP3: %w", err)
+	}
 	raylibTraceLog(rl.LogInfo, "Saved track: "+name+" ("+track.trackPath+")")
 
 	if imagePath != "" {
@@ -810,7 +818,6 @@ func (s *Storage) AddTrack(name, imagePath string, samples Samples, gain float32
 	if err := s.Save(); err != nil {
 		return err
 	}
-
 	return nil
 }
 
@@ -1104,10 +1111,11 @@ func (s *Storage) Load() error {
 		return fmt.Errorf("listing saved images: %w", err)
 	}
 
-	s.garbageFiles = s.garbageFiles[:0]
+	s.garbageFiles = nil
+	s.tracksToConvert = nil
 	indexedFiles := make(map[ID]struct{ trackPath, imagePath string }, max(len(trackEntries), len(imageEntries)))
 
-	trackRegex := regexp.MustCompile(`^(\d+)\.wav$`)
+	trackRegex := regexp.MustCompile(`^(\d+)\.(?:wav|mp3)$`)
 	imageRegex := regexp.MustCompile(`^(\d+)\.png$`)
 
 	for _, entry := range trackEntries {
@@ -1122,6 +1130,31 @@ func (s *Storage) Load() error {
 				raylibTraceLog(rl.LogWarning, fmt.Sprintf("Parsing track file entry %q: %s", entryPath, err))
 				goto DiscardTrack
 			}
+
+			if filepath.Ext(entryPath) == FileExtensionWAV {
+				wav, err := ParseWAVFile(entryPath, false)
+				if err != nil {
+					raylibTraceLog(rl.LogWarning, fmt.Sprintf("Parsing track file entry content %q: %s", entryPath, err))
+					goto DiscardTrack
+				}
+				var quality SampleQuality
+				switch wav.BitsPerSample {
+				case 8:
+					quality = SampleQualityInt8
+				case 16:
+					quality = SampleQualityInt16
+				case 32:
+					quality = SampleQualityFloat32
+				default:
+					raylibTraceLog(rl.LogWarning, fmt.Sprintf("Parsing track file entry content %q: %s", entryPath, err))
+					goto DiscardTrack
+				}
+				s.tracksToConvert = append(s.tracksToConvert, struct {
+					trackID ID
+					quality SampleQuality
+				}{id, quality})
+			}
+
 			tmp := indexedFiles[id]
 			tmp.trackPath = entryPath
 			indexedFiles[id] = tmp
@@ -1144,6 +1177,7 @@ func (s *Storage) Load() error {
 				raylibTraceLog(rl.LogWarning, fmt.Sprintf("Parsing track image file entry %q: %s", entryPath, err))
 				goto DiscardImage
 			}
+
 			tmp := indexedFiles[id]
 			tmp.imagePath = entryPath
 			indexedFiles[id] = tmp
@@ -1184,7 +1218,7 @@ func (s *Storage) Save() error {
 	bufLen := buf.Len()
 	n, err := file.ReadFrom(&buf)
 	if err != nil {
-		return fmt.Errorf("reading config file: %w", err)
+		return fmt.Errorf("writing config file: %w", err)
 	}
 	assert.Equal(int(n), bufLen)
 
@@ -1498,7 +1532,7 @@ func Main() error {
 	rl.SetConfigFlags(rl.FlagMsaa4xHint | rl.FlagWindowResizable | rl.FlagWindowAlwaysRun)
 	rl.SetTargetFPS(TargetFPS)
 
-	gui.InitWindow(storage.WindowSize, "raylib-test")
+	gui.InitWindow(storage.WindowSize, "soundpad")
 	defer gui.CloseWindow()
 
 	if DevMode {
