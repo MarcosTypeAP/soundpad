@@ -91,7 +91,7 @@ In your communication app (Discord, TeamSpeak, etc.), set your microphone input 
 
 ```sh
 # Required
-$ apt install -y --no-install-recommends libxi6 libx11-6 pulseaudio-utils libasound-dev libpulse0 zenity
+$ apt install -y --no-install-recommends libxi6 libx11-6 pulseaudio-utils zenity
 
 # Optional
 # - X11
@@ -123,7 +123,7 @@ The build uses CGO and statically links PortAudio and RNNoise. The Makefile hand
 
 ```sh
 # For building the project
-$ apt install -y --no-install-recommends autoconf libtool
+$ apt install -y --no-install-recommends autoconf libtool libpulse-dev
 
 # For cross-compiling to Windows
 $ apt install -y --no-install-recommends gcc-mingw-w64-x86-64
