@@ -49,6 +49,8 @@ GO_FLAGS_WINDOWS_RELEASE := -trimpath -ldflags="-s -w -H=windowsgui"
 
 RNNOISE_COMMIT_HASH := 70f1d256acd4b34a572f999a05c87bf00b67730d
 PORTAUDIO_COMMIT_HASH := d5b81b82f13ae8498f02e27595aa9c50ab2623db
+LAME_VERSION := 3.100
+FFMPEG_VERSION_TAG := n8.1.1
 
 .PHONY: linux-edit
 linux-edit:
@@ -138,6 +140,40 @@ deps_build/portaudio:
 	git remote add origin https://github.com/PortAudio/portaudio.git && \
 	git fetch --depth=1 origin ${PORTAUDIO_COMMIT_HASH} && \
 	git switch -d FETCH_HEAD
+
+deps_build/lame:
+	rm -fr deps_build/lame
+	mkdir -p deps_build/lame
+
+	cd deps_build/lame && \
+	curl -fsSL https://sitsa.dl.sourceforge.net/project/lame/lame/${LAME_VERSION}/lame-${LAME_VERSION}.tar.gz \
+		| tar -xzf - --strip-components=1
+
+deps_build/ffmpeg:
+	rm -fr deps_build/ffmpeg
+	mkdir -p deps_build
+
+	git clone https://git.ffmpeg.org/ffmpeg.git \
+		--depth=1 --branch=${FFMPEG_VERSION_TAG} deps_build/ffmpeg
+
+FFMPEG_COMMON_BUILD_FLAGS := \
+	--disable-all \
+	--disable-shared \
+	--disable-doc \
+	--disable-programs \
+	--enable-ffmpeg \
+	--enable-avcodec \
+	--enable-avformat \
+	--enable-avfilter \
+	--enable-swresample \
+	--enable-demuxer=mov,matroska,wav,mp3,flac,ogg,aac,pcm_f32le,pcm_u8 \
+	--enable-decoder=aac,mp3,vorbis,opus,flac,wav,m4a,pcm_f32le,pcm_s16le,pcm_s24le,pcm_u8 \
+	--enable-encoder=libmp3lame,pcm_f32le,pcm_s16le,pcm_s8 \
+	--enable-muxer=mp3,pcm_f32le,pcm_s16le,pcm_s8 \
+	--enable-libmp3lame \
+	--enable-parser=aac,mpegaudio,opus,vorbis,flac \
+	--enable-filter=aresample,aformat \
+	--enable-protocol=file,pipe
 	
 THIRD_PARTY_LINUX_RNNOISE_FILES := \
 	third_party/linux/include/rnnoise.h \
@@ -152,9 +188,18 @@ THIRD_PARTY_LINUX_PORTAUDIO_FILES := \
 	third_party/linux/lib/libportaudio.la \
 	third_party/linux/lib/pkgconfig/portaudio-2.0.pc
 
+THIRD_PARTY_LINUX_LAME_FILES := \
+	third_party/linux/include/lame/lame.h \
+	third_party/linux/lib/libmp3lame.a \
+	third_party/linux/lib/libmp3lame.la
+
+THIRD_PARTY_LINUX_FFMPEG_FILES := \
+	internal/ffmpeg/bin/ffmpeg.gz
+
 third_party/linux: \
 	$(THIRD_PARTY_LINUX_RNNOISE_FILES) \
-	$(THIRD_PARTY_LINUX_PORTAUDIO_FILES)
+	$(THIRD_PARTY_LINUX_PORTAUDIO_FILES) \
+	$(THIRD_PARTY_LINUX_FFMPEG_FILES)
 
 $(THIRD_PARTY_LINUX_RNNOISE_FILES): deps_build/rnnoise
 	mkdir -p third_party/linux
@@ -184,6 +229,33 @@ $(THIRD_PARTY_LINUX_PORTAUDIO_FILES): deps_build/portaudio
 
 	go clean -cache
 
+$(THIRD_PARTY_LINUX_LAME_FILES):
+	mkdir -p third_party/linux
+
+	mkdir -p /tmp/liblame-docs
+	
+	cd deps_build/lame && \
+	make clean; \
+	./configure \
+		--enable-static --disable-shared \
+		--disable-dependency-tracking \
+		--disable-gtktest --disable-frontend \
+		--docdir=/tmp/liblame-docs --mandir=/tmp/liblame-docs \
+		--prefix=${CURDIR}/third_party/linux && \
+	make install
+
+$(THIRD_PARTY_LINUX_FFMPEG_FILES): $(THIRD_PARTY_LINUX_LAME_FILES) deps_build/ffmpeg
+	cd deps_build/ffmpeg && \
+	make distclean; \
+	./configure \
+		$(FFMPEG_COMMON_BUILD_FLAGS) \
+		--extra-cflags="-I${CURDIR}/third_party/linux/include" \
+		--extra-ldflags="-L${CURDIR}/third_party/linux/lib" && \
+	make
+
+	mkdir -p internal/ffmpeg/bin
+	gzip -9 --stdout --keep deps_build/ffmpeg/ffmpeg > internal/ffmpeg/bin/ffmpeg.gz
+
 THIRD_PARTY_WINDOWS_RNNOISE_FILES := \
 	third_party/windows/include/rnnoise.h \
 	third_party/windows/lib/librnnoise.a \
@@ -198,10 +270,19 @@ THIRD_PARTY_WINDOWS_PORTAUDIO_FILES := \
 	third_party/windows/lib/libportaudio.la \
 	third_party/windows/lib/pkgconfig/portaudio-2.0.pc
 
+THIRD_PARTY_WINDOWS_LAME_FILES := \
+	third_party/windows/include/lame/lame.h \
+	third_party/windows/lib/libmp3lame.a \
+	third_party/windows/lib/libmp3lame.la
+
+THIRD_PARTY_WINDOWS_FFMPEG_FILES := \
+	internal/ffmpeg/bin/ffmpeg.exe.gz
+
 third_party/windows: \
 	rsrc_windows_amd64.syso \
 	$(THIRD_PARTY_WINDOWS_RNNOISE_FILES) \
-	$(THIRD_PARTY_WINDOWS_PORTAUDIO_FILES)
+	$(THIRD_PARTY_WINDOWS_PORTAUDIO_FILES) \
+	$(THIRD_PARTY_WINDOWS_FFMPEG_FILES)
 
 tools/rsrc:
 	GOBIN=${CURDIR}/tools go install github.com/akavel/rsrc@latest
@@ -239,3 +320,35 @@ $(THIRD_PARTY_WINDOWS_PORTAUDIO_FILES):
 	make install
 
 	go clean -cache
+
+$(THIRD_PARTY_WINDOWS_LAME_FILES):
+	mkdir -p third_party/windows
+
+	mkdir -p /tmp/liblame-docs
+	
+	cd deps_build/lame && \
+	make clean; \
+	./configure \
+		--host=x86_64-w64-mingw32 \
+		--enable-static --disable-shared \
+		--disable-dependency-tracking \
+		--disable-gtktest --disable-frontend \
+		--docdir=/tmp/liblame-docs --mandir=/tmp/liblame-docs \
+		--prefix=${CURDIR}/third_party/windows && \
+	make install
+
+$(THIRD_PARTY_WINDOWS_FFMPEG_FILES): $(THIRD_PARTY_WINDOWS_LAME_FILES) deps_build/ffmpeg
+	cd deps_build/ffmpeg && \
+	make distclean; \
+	./configure \
+		$(FFMPEG_COMMON_BUILD_FLAGS) \
+		--cross-prefix=x86_64-w64-mingw32- \
+		--enable-cross-compile \
+		--target-os=mingw32 \
+		--arch=x86_64 \
+		--extra-cflags="-I${CURDIR}/third_party/windows/include" \
+		--extra-ldflags="-L${CURDIR}/third_party/windows/lib" && \
+	make
+
+	mkdir -p internal/ffmpeg/bin
+	gzip -9 --stdout --keep deps_build/ffmpeg/ffmpeg.exe > internal/ffmpeg/bin/ffmpeg.exe.gz

@@ -117,13 +117,14 @@ The build uses CGO and statically links PortAudio and RNNoise. The Makefile hand
 ### Dependencies
 
 - `build-essential`, `autoconf`, and `libtool` — used to build the project
+- `nasm` - used to compile ffmpeg with hand-optimized assembly
 - `gcc-mingw-w64` — optional, used to cross-compile to windows
 
 #### Debian-based Systems
 
 ```sh
 # For building the project
-$ apt install -y --no-install-recommends autoconf libtool libpulse-dev
+$ apt install -y --no-install-recommends autoconf libtool libpulse-dev nasm
 
 # For cross-compiling to Windows
 $ apt install -y --no-install-recommends gcc-mingw-w64-x86-64

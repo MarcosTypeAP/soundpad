@@ -1,1 +1,6 @@
 /todo.md
+/build
+/deps_build
+/third_party
+/tools
+/internal/ffmpeg/bin
