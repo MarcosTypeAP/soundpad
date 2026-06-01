@@ -327,23 +327,35 @@ type Profile struct {
 	Bindings []Binding
 }
 
+type KeyListenerRecordingTarget uint8
+
+const (
+	KeyListenerRecordingTargetNone KeyListenerRecordingTarget = iota
+	KeyListenerRecordingTargetBinding
+	KeyListenerRecordingTargetClearSound
+	KeyListenerRecordingTargetIgnoredKeys
+)
+
 type KeyListener struct {
 	keyEventsCh         <-chan crossplatform.KeyEvent
 	eventsBuf           []crossplatform.KeyEvent
-	isRecording         bool
+	ignoredKeys         KeyCombo
+	recordingTarget     KeyListenerRecordingTarget
 	isKeyComboAvailable bool
 	IsGrabbedByScene    bool
 }
 
-func NewKeyListener(keyEventsCh <-chan crossplatform.KeyEvent) KeyListener {
+func NewKeyListener(keyEventsCh <-chan crossplatform.KeyEvent, ignoredKeys KeyCombo) KeyListener {
 	return KeyListener{
 		keyEventsCh: keyEventsCh,
+		ignoredKeys: ignoredKeys,
 	}
 }
 
 func (l *KeyListener) getCurrentKeyCombo() KeyCombo {
 	var keys KeyCombo
 
+	assert.LessEqual(len(l.eventsBuf), len(KeyCombo{}))
 	for i := range l.eventsBuf {
 		keys[i] = NewKey(uint32(l.eventsBuf[i].Key), KeyKindKeyboard)
 	}
@@ -352,24 +364,37 @@ func (l *KeyListener) getCurrentKeyCombo() KeyCombo {
 	return keys
 }
 
-func (l *KeyListener) StartRecording() {
+func (l *KeyListener) IsRecording() bool {
+	return l.recordingTarget != KeyListenerRecordingTargetNone
+}
+
+func (l *KeyListener) IsRecordingTargets(targets ...KeyListenerRecordingTarget) bool {
+	for _, target := range targets {
+		if target == l.recordingTarget {
+			return true
+		}
+	}
+	return false
+}
+
+func (l *KeyListener) StartRecording(target KeyListenerRecordingTarget) {
 	l.eventsBuf = l.eventsBuf[:0]
 	l.Flush()
-	l.isRecording = true
+	l.recordingTarget = target
 }
 
 func (l *KeyListener) StopRecording() KeyCombo {
-	if !l.isRecording {
+	if !l.IsRecording() {
 		return KeyCombo{}
 	}
 
+	keys := l.getCurrentKeyCombo()
+
 	l.eventsBuf = l.eventsBuf[:0]
 	l.Flush()
-	l.isRecording = false
+	l.recordingTarget = KeyListenerRecordingTargetNone
 
-	assert.InRange(len(l.eventsBuf), 0, len(KeyCombo{}))
-
-	return l.getCurrentKeyCombo()
+	return keys
 }
 
 func (l *KeyListener) IsRecordingFinished() (KeyCombo, bool) {
@@ -383,7 +408,8 @@ func (l *KeyListener) IsRecordingFinished() (KeyCombo, bool) {
 		}
 	}
 
-	return l.getCurrentKeyCombo(), true
+	keys := l.StopRecording()
+	return keys, true
 }
 
 func (l *KeyListener) GetRecordingKeyCombo() KeyCombo {
@@ -420,7 +446,16 @@ func (l *KeyListener) Update() {
 		return
 	}
 
-	if l.isRecording {
+	{
+		eventKey := NewKey(uint32(event.Key), KeyKindKeyboard)
+		for _, key := range l.ignoredKeys {
+			if key == eventKey {
+				return
+			}
+		}
+	}
+
+	if l.IsRecording() {
 		if event.IsPressed {
 			l.eventsBuf = slices.DeleteFunc(l.eventsBuf, func(e crossplatform.KeyEvent) bool { return !e.IsPressed })
 
@@ -503,6 +538,7 @@ type JSONStorage struct {
 	SelectedOutputName string
 
 	ClearSoundsKeyCombo KeyCombo
+	IgnoredKeys         KeyCombo
 }
 
 type Storage struct {
@@ -1432,25 +1468,7 @@ func Main() error {
 		raylibTraceLog(rl.LogInfo, "Session type set to X11")
 	}
 
-	if err := rnnoise.Load(nil); err != nil {
-		return fmt.Errorf("Loading rnnoise: %w", err)
-	}
-	raylibTraceLog(rl.LogInfo, "RNNoise global state initialized")
-
-	if err := crossplatform.LoadSharedLibs(); err != nil {
-		return fmt.Errorf("Loading shared libs: %w", err)
-	}
-	defer crossplatform.UnloadSharedLibs()
-
-	keyPressesCh, err := crossplatform.BeginListeningKeyPresses()
-	if err != nil {
-		return fmt.Errorf("Setting the global keypress listener: %w", err)
-	}
-	defer crossplatform.EndListeningKeyPresses()
-
-	keyListener := NewKeyListener(keyPressesCh)
-
-	err = portaudio.Initialize()
+	err := portaudio.Initialize()
 	if err != nil {
 		return fmt.Errorf("Initializing audio: %w", err)
 	}
@@ -1479,6 +1497,23 @@ func Main() error {
 	if err := storage.UpdateAudioDevices(); err != nil {
 		return fmt.Errorf("Updating audio devices: %w", err)
 	}
+
+	if err := rnnoise.Load(nil); err != nil {
+		return fmt.Errorf("Loading rnnoise: %w", err)
+	}
+	raylibTraceLog(rl.LogInfo, "RNNoise global state initialized")
+
+	if err := crossplatform.LoadSharedLibs(); err != nil {
+		return fmt.Errorf("Loading shared libs: %w", err)
+	}
+	defer crossplatform.UnloadSharedLibs()
+
+	keyPressesCh, err := crossplatform.BeginListeningKeyPresses()
+	if err != nil {
+		return fmt.Errorf("Setting the global keypress listener: %w", err)
+	}
+	defer crossplatform.EndListeningKeyPresses()
+	keyListener := NewKeyListener(keyPressesCh, storage.IgnoredKeys)
 
 	inputInfo, err := storage.GetInputDeviceInfo(-1)
 	if err != nil {
@@ -1632,7 +1667,7 @@ func Main() error {
 
 		keyListener.Update()
 
-		if !keyListener.IsGrabbedByScene && !keyListener.isRecording {
+		if !keyListener.IsGrabbedByScene && !keyListener.IsRecording() {
 			if keys, ok := keyListener.GetKeyCombo(); ok && keys.IsValid() {
 				switch {
 				case DevMode && keys.Equal(KeyToggleGUIDebug):

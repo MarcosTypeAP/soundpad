@@ -44,13 +44,10 @@ type Scene struct {
 	addTrackFilePath  string
 	addTrackSamples   SamplesFloat32
 
-	selectedBinding                    *Binding
-	isSelectedBindingListeningKeyCombo bool
+	selectedBinding *Binding
 
 	selectedTrack            *Track
 	selectedTrackTestSoundID SoundID
-
-	isSettingsPopupListeningKeyCombo bool
 
 	haveDisplayedDefaultDevicesWarning bool
 	havePromptedToCleanGarbageFiles    bool
@@ -512,7 +509,7 @@ func (s *Scene) Run(storage *Storage, keyListener *KeyListener, audioPlayer *Aud
 	//// Update ////
 	gui.Update()
 
-	if (s.ctxMenuSubWindow.IsHidden() && s.popupSubWindow.IsHidden()) || rl.IsKeyPressed(rl.KeyEscape) {
+	if (s.ctxMenuSubWindow.IsHidden() && s.popupSubWindow.IsHidden()) || !keyListener.IsRecording() && rl.IsKeyPressed(rl.KeyEscape) {
 		s.CloseCtxMenu()
 		s.ClosePopup()
 		keyListener.IsGrabbedByScene = false
@@ -1263,7 +1260,6 @@ func (s *Scene) BuildPopupAddOrEditProfile(storage *Storage, profileDropdown *gu
 
 func (s *Scene) BuildPopupSettions(storage *Storage, audioPlayer *AudioPlayer, keyListener *KeyListener) {
 	s.popupOnClose = func() {
-		s.isSettingsPopupListeningKeyCombo = false
 		keyListener.StopRecording()
 	}
 
@@ -1317,15 +1313,14 @@ func (s *Scene) BuildPopupSettions(storage *Storage, audioPlayer *AudioPlayer, k
 
 		refreshDevices := gui.AddChild(body, NewPrimaryButton("reload.png", "Refresh Devices", theme.primary1))
 
-		clearSoundsKeyComboBox := gui.AddChild(body, gui.NewBox(gui.BoxProps{
-			ChildGap:    10,
-			ChildAlignY: gui.Center,
-		}))
-		gui.AddChild(clearSoundsKeyComboBox, gui.NewText(gui.TextProps{}, "Clear sounds"))
-		var setClearSoundsKeyComboBtn *gui.Button
-		{
+		createSetKeyComboButton := func(target KeyListenerRecordingTarget, legend string, currentKeyCombo KeyCombo) *gui.Button {
+			box := gui.AddChild(body, gui.NewBox(gui.BoxProps{
+				ChildGap:    10,
+				ChildAlignY: gui.Center,
+			}))
+			gui.AddChild(box, gui.NewText(gui.TextProps{}, legend))
 			var btnText string
-			if s.isSettingsPopupListeningKeyCombo {
+			if keyListener.recordingTarget == target {
 				keys := keyListener.GetRecordingKeyCombo()
 				if keys == (KeyCombo{}) {
 					btnText = "Listening..."
@@ -1333,10 +1328,22 @@ func (s *Scene) BuildPopupSettions(storage *Storage, audioPlayer *AudioPlayer, k
 					btnText = keys.String()
 				}
 			} else {
-				btnText = storage.ClearSoundsKeyCombo.String()
+				btnText = currentKeyCombo.String()
 			}
-			setClearSoundsKeyComboBtn = gui.AddChild(clearSoundsKeyComboBox, NewSecondaryButton("keyboard.png", btnText))
+			return gui.AddChild(box, NewSecondaryButton("keyboard.png", btnText))
 		}
+
+		setClearSoundsKeyComboBtn := createSetKeyComboButton(
+			KeyListenerRecordingTargetClearSound,
+			"Clear Sounds",
+			storage.ClearSoundsKeyCombo,
+		)
+
+		setIgnoredKeysBtn := createSetKeyComboButton(
+			KeyListenerRecordingTargetIgnoredKeys,
+			"Ignored Keys",
+			storage.IgnoredKeys,
+		)
 
 		if DevMode {
 			debugModeToggleBox := gui.AddChild(body, gui.NewBox(gui.BoxProps{
@@ -1526,16 +1533,18 @@ func (s *Scene) BuildPopupSettions(storage *Storage, audioPlayer *AudioPlayer, k
 			}
 
 			if setClearSoundsKeyComboBtn.IsLeftButtonPressed() {
-				keyListener.StartRecording()
-				s.isSettingsPopupListeningKeyCombo = true
+				keyListener.StartRecording(KeyListenerRecordingTargetClearSound)
 			}
-			if s.isSettingsPopupListeningKeyCombo {
+			if setIgnoredKeysBtn.IsLeftButtonPressed() {
+				keyListener.StartRecording(KeyListenerRecordingTargetIgnoredKeys)
+			}
+			if keyListener.IsRecordingTargets(KeyListenerRecordingTargetClearSound, KeyListenerRecordingTargetIgnoredKeys) {
+				target := keyListener.recordingTarget
+
 				keys, ok := keyListener.IsRecordingFinished()
 				if !ok {
 					return
 				}
-
-				s.isSettingsPopupListeningKeyCombo = false
 
 				if !keys.IsValid() {
 					return
@@ -1545,9 +1554,19 @@ func (s *Scene) BuildPopupSettions(storage *Storage, audioPlayer *AudioPlayer, k
 					keys = KeyCombo{}
 				}
 
-				if err := storage.SetClearSoundsKeyCombo(keys); err != nil {
-					s.OpenErrorPopup(fmt.Sprintf("Could not set the key combo %q: %s", keys, err), false)
-					return
+				switch target {
+				case KeyListenerRecordingTargetClearSound:
+					if err := storage.SetClearSoundsKeyCombo(keys); err != nil {
+						s.OpenErrorPopup(fmt.Sprintf("Could not set key combo %q: %s", keys, err), false)
+						return
+					}
+				case KeyListenerRecordingTargetIgnoredKeys:
+					storage.IgnoredKeys = keys
+					keyListener.ignoredKeys = keys
+					if err := storage.Save(); err != nil {
+						s.OpenErrorPopup(fmt.Sprintf("Could not set key combo %q: %s", keys, err), false)
+						return
+					}
 				}
 			}
 		})
@@ -1733,7 +1752,6 @@ func (s *Scene) BuildCtxMenuBinding(storage *Storage, audioPlayer *AudioPlayer, 
 
 	s.ctxMenuOnClose = func() {
 		keyListener.StopRecording()
-		s.isSelectedBindingListeningKeyCombo = false
 		s.selectedBinding = nil
 	}
 
@@ -1753,10 +1771,10 @@ func (s *Scene) BuildCtxMenuBinding(storage *Storage, audioPlayer *AudioPlayer, 
 			Wrapping: gui.EllipsisOverflow,
 		}, track.Name))
 
-		if s.selectedBinding.Keys.IsSet() || s.isSelectedBindingListeningKeyCombo {
+		if s.selectedBinding.Keys.IsSet() || keyListener.recordingTarget == KeyListenerRecordingTargetBinding {
 			var keyComboString string
 
-			if s.isSelectedBindingListeningKeyCombo {
+			if keyListener.IsRecording() {
 				keyComboString = keyListener.GetRecordingKeyCombo().String()
 			} else {
 				keyComboString = s.selectedBinding.GetKeysString()
@@ -1776,7 +1794,7 @@ func (s *Scene) BuildCtxMenuBinding(storage *Storage, audioPlayer *AudioPlayer, 
 			}, keyComboString))
 		}
 
-		changeKeyBtn := gui.AddChild(content, NewCtxMenuButton("keyboard.png", gui.Ternary(s.isSelectedBindingListeningKeyCombo, "Listening...", "Change Keys"), theme.fg2, theme.bg3))
+		changeKeyBtn := gui.AddChild(content, NewCtxMenuButton("keyboard.png", gui.Ternary(keyListener.recordingTarget == KeyListenerRecordingTargetBinding, "Listening...", "Change Keys"), theme.fg2, theme.bg3))
 		disableBtn := gui.AddChild(content, NewCtxMenuButton("disabled.png", gui.Ternary(s.selectedBinding.IsEnabled, "Disable", "Enable"), theme.fg2, theme.bg3))
 		removeBtn := gui.AddChild(content, NewCtxMenuButton("trash.png", "Remove", theme.fg2, theme.error2))
 
@@ -1800,16 +1818,13 @@ func (s *Scene) BuildCtxMenuBinding(storage *Storage, audioPlayer *AudioPlayer, 
 			}
 
 			if changeKeyBtn.IsLeftButtonPressed() {
-				s.isSelectedBindingListeningKeyCombo = true
-				keyListener.StartRecording()
+				keyListener.StartRecording(KeyListenerRecordingTargetBinding)
 			}
-			if s.isSelectedBindingListeningKeyCombo {
+			if keyListener.recordingTarget == KeyListenerRecordingTargetBinding {
 				keys, ok := keyListener.IsRecordingFinished()
 				if !ok {
 					return
 				}
-
-				s.isSelectedBindingListeningKeyCombo = false
 
 				if !keys.IsValid() {
 					return
@@ -1820,7 +1835,7 @@ func (s *Scene) BuildCtxMenuBinding(storage *Storage, audioPlayer *AudioPlayer, 
 				}
 
 				if err := storage.SetBindingKeyCombo(s.selectedBinding, keys); err != nil {
-					s.OpenErrorPopup(fmt.Sprintf("Could not set the key binding: %s", err), false)
+					s.OpenErrorPopup(fmt.Sprintf("Could not set key binding: %s", err), false)
 					return
 				}
 			}
