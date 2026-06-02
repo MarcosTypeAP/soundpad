@@ -59,7 +59,8 @@ In your communication app (Discord, TeamSpeak, etc.), set your microphone input 
 - Creating of profiles so you can have different layouts for different situations
 - Multiple sounds playing simultaneously, with a hotkey to clear them all
 - Fine volume gain control
-- Audio wave cutter, saving to `Low` (8bit), `Medium` (16bit), or `High` (32bit) quality
+- Supports most common media formats
+- Audio wave cutter, saving to **MP3**, and loading to `Low` (8bit), `Medium` (16bit), or `High` (32bit) quality to control RAM usage
 - Paste a PNG/JPG by right-clicking any "Add/Change Image" button
 - Noise suppression passthrough — your real mic goes through [RNNoise](https://github.com/xiph/rnnoise) before being forwarded to the virtual mic
 
